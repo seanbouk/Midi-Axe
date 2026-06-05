@@ -20,13 +20,18 @@ export interface MasterBus {
 }
 
 export function createMasterBus(): MasterBus {
-  const limiter = new Tone.Limiter(-1).toDestination();
-  const gain = new Tone.Gain(0.6).connect(limiter);
+  // A tanh soft-clipper is the ceiling: tanh asymptotes to ±1, so no sum of
+  // voices can ever push the output past full scale — it saturates smoothly
+  // (musical, chiptune-friendly) instead of hard-clipping. Quiet material stays
+  // near-linear; only loud peaks get rounded off. This guarantees no clipping
+  // for both live playback and offline export.
+  const shaper = new Tone.WaveShaper((x: number) => Math.tanh(x), 4096).toDestination();
+  const gain = new Tone.Gain(0.85).connect(shaper);
   return {
     input: gain,
     dispose() {
       gain.dispose();
-      limiter.dispose();
+      shaper.dispose();
     },
   };
 }
@@ -49,7 +54,7 @@ class TonalVoice implements Voice {
   ) {
     this.synth = new Tone.PolySynth(Tone.Synth, {
       oscillator: oscillator as Tone.OmniOscillatorOptions,
-      envelope: { attack: 0.002, decay: 0.05, sustain: 0.85, release: 0.06 },
+      envelope: { attack: 0.005, decay: 0.05, sustain: 0.85, release: 0.06 },
       volume: Tone.gainToDb(gain),
     }).connect(output);
     this.synth.maxPolyphony = 16;

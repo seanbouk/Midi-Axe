@@ -42,17 +42,16 @@ function encodeWav(audioBuffer: AudioBuffer): Blob {
   const channels: Float32Array[] = [];
   for (let c = 0; c < numCh; c++) channels.push(audioBuffer.getChannelData(c));
 
-  // Attenuate-only peak normalization: the live limiter still lets fast note
-  // attacks reach 0 dBFS, so guarantee the exported file never clips by scaling
-  // down to -0.3 dBFS if (and only if) the peak exceeds it. Quiet material is
-  // left untouched so we don't amplify the noise floor.
+  // Peak-normalize to -0.3 dBFS. The master bus already soft-clips below full
+  // scale, so this just brings the render up to a consistent level (synthesized
+  // silence is true zero, so there is no noise floor to amplify).
   let peak = 0;
   for (const ch of channels)
     for (let i = 0; i < ch.length; i++) {
       const a = Math.abs(ch[i]);
       if (a > peak) peak = a;
     }
-  const gain = peak > 0.97 ? 0.97 / peak : 1;
+  const gain = peak > 1e-4 ? 0.97 / peak : 1;
 
   const bytesPerSample = 2;
   const blockAlign = numCh * bytesPerSample;
