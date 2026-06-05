@@ -10,6 +10,27 @@ export interface Voice {
   dispose(): void;
 }
 
+// Shared output chain that every voice connects to instead of the raw output.
+// The headroom gain pulls the summed signal down so a full arrangement has room
+// to add up, and the limiter catches any remaining peaks so the mix can never
+// hard-clip. Created per render context (global for live, offline for export).
+export interface MasterBus {
+  input: Tone.ToneAudioNode;
+  dispose(): void;
+}
+
+export function createMasterBus(): MasterBus {
+  const limiter = new Tone.Limiter(-1).toDestination();
+  const gain = new Tone.Gain(0.6).connect(limiter);
+  return {
+    input: gain,
+    dispose() {
+      gain.dispose();
+      limiter.dispose();
+    },
+  };
+}
+
 // Tone's PulseOscillator "width" runs -1..1, where 0 == 50% duty (square).
 // Map the classic NES duty cycles onto that range.
 const PULSE_WIDTH: Record<string, number> = {
@@ -21,12 +42,16 @@ const PULSE_WIDTH: Record<string, number> = {
 class TonalVoice implements Voice {
   private synth: Tone.PolySynth;
 
-  constructor(oscillator: Partial<Tone.OmniOscillatorOptions>, gain: number) {
+  constructor(
+    oscillator: Partial<Tone.OmniOscillatorOptions>,
+    gain: number,
+    output: Tone.ToneAudioNode,
+  ) {
     this.synth = new Tone.PolySynth(Tone.Synth, {
       oscillator: oscillator as Tone.OmniOscillatorOptions,
       envelope: { attack: 0.002, decay: 0.05, sustain: 0.85, release: 0.06 },
       volume: Tone.gainToDb(gain),
-    }).toDestination();
+    }).connect(output);
     this.synth.maxPolyphony = 16;
   }
 
@@ -44,17 +69,19 @@ class TonalVoice implements Voice {
 // don't cut each other off. Higher MIDI notes => brighter/shorter hit.
 class NoiseVoice implements Voice {
   private pool: Tone.NoiseSynth[] = [];
+  private filters: Tone.Filter[] = [];
   private next = 0;
 
-  constructor(poolSize = 4) {
+  constructor(output: Tone.ToneAudioNode, poolSize = 4) {
     for (let i = 0; i < poolSize; i++) {
-      const filter = new Tone.Filter(1000, "highpass").toDestination();
+      const filter = new Tone.Filter(1000, "highpass").connect(output);
       const synth = new Tone.NoiseSynth({
         noise: { type: "white" },
         envelope: { attack: 0.001, decay: 0.12, sustain: 0 },
         volume: -6,
       }).connect(filter);
       this.pool.push(synth);
+      this.filters.push(filter);
     }
   }
 
@@ -69,10 +96,11 @@ class NoiseVoice implements Voice {
 
   dispose() {
     this.pool.forEach((s) => s.dispose());
+    this.filters.forEach((f) => f.dispose());
   }
 }
 
-export function createVoice(voice: VoiceId): Voice {
+export function createVoice(voice: VoiceId, output: Tone.ToneAudioNode): Voice {
   switch (voice) {
     case "pulse12":
     case "pulse25":
@@ -80,10 +108,11 @@ export function createVoice(voice: VoiceId): Voice {
       return new TonalVoice(
         { type: "pulse", width: PULSE_WIDTH[voice] },
         0.5,
+        output,
       );
     case "triangle":
-      return new TonalVoice({ type: "triangle" }, 0.7);
+      return new TonalVoice({ type: "triangle" }, 0.7, output);
     case "noise":
-      return new NoiseVoice();
+      return new NoiseVoice(output);
   }
 }

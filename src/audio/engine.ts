@@ -1,18 +1,21 @@
 import * as Tone from "tone";
 import { audibleTracks, secondsPerRow, type Song } from "../model/song";
-import { createVoice, type Voice } from "./voices";
+import { createMasterBus, createVoice, type MasterBus, type Voice } from "./voices";
 
 // Live playback engine. Builds one Voice per audible track, schedules the
 // (cropped) notes on Tone's Transport, and reports the current playhead row via
 // requestAnimationFrame so the tracker view can scroll/highlight in time.
 
 let voices: Voice[] = [];
+let masterBus: MasterBus | null = null;
 let rafId = 0;
 let playing = false;
 
 function clearVoices() {
   voices.forEach((v) => v.dispose());
   voices = [];
+  masterBus?.dispose();
+  masterBus = null;
 }
 
 export function isPlaying() {
@@ -34,9 +37,10 @@ export async function play(
   const end = song.cropEnd;
   const spanSec = (end - start) * spr;
 
+  masterBus = createMasterBus();
   const tracks = audibleTracks(song);
   for (const track of tracks) {
-    const voice = createVoice(track.voice);
+    const voice = createVoice(track.voice, masterBus.input);
     voices.push(voice);
     for (const note of track.notes) {
       if (note.row < start || note.row >= end) continue;

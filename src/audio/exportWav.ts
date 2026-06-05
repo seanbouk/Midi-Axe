@@ -1,6 +1,6 @@
 import * as Tone from "tone";
 import { audibleTracks, secondsPerRow, type Song } from "../model/song";
-import { createVoice } from "./voices";
+import { createMasterBus, createVoice } from "./voices";
 
 // Render the filtered + voiced song offline (faster than real time) into an
 // audio buffer, then encode it as a 16-bit PCM WAV. WAV imports directly into
@@ -15,8 +15,9 @@ export async function renderWav(song: Song): Promise<Blob> {
   // Inside Tone.Offline the "current context" is the offline one, so any
   // synths created here (via createVoice) render into that offline buffer.
   const buffer = await Tone.Offline(({ transport }) => {
+    const master = createMasterBus();
     for (const track of audibleTracks(song)) {
-      const voice = createVoice(track.voice);
+      const voice = createVoice(track.voice, master.input);
       for (const note of track.notes) {
         if (note.row < start || note.row >= end) continue;
         const t = (note.row - start) * spr;
@@ -40,6 +41,18 @@ function encodeWav(audioBuffer: AudioBuffer): Blob {
   // interleave channels
   const channels: Float32Array[] = [];
   for (let c = 0; c < numCh; c++) channels.push(audioBuffer.getChannelData(c));
+
+  // Attenuate-only peak normalization: the live limiter still lets fast note
+  // attacks reach 0 dBFS, so guarantee the exported file never clips by scaling
+  // down to -0.3 dBFS if (and only if) the peak exceeds it. Quiet material is
+  // left untouched so we don't amplify the noise floor.
+  let peak = 0;
+  for (const ch of channels)
+    for (let i = 0; i < ch.length; i++) {
+      const a = Math.abs(ch[i]);
+      if (a > peak) peak = a;
+    }
+  const gain = peak > 0.97 ? 0.97 / peak : 1;
 
   const bytesPerSample = 2;
   const blockAlign = numCh * bytesPerSample;
@@ -68,7 +81,7 @@ function encodeWav(audioBuffer: AudioBuffer): Blob {
   let offset = 44;
   for (let i = 0; i < numFrames; i++) {
     for (let c = 0; c < numCh; c++) {
-      let sample = channels[c][i];
+      let sample = channels[c][i] * gain;
       sample = Math.max(-1, Math.min(1, sample));
       view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
       offset += 2;
