@@ -1,0 +1,76 @@
+:root {
+  --bg: #14131c;
+  --panel: #1d1b2a;
+  --panel2: #262338;
+  --ink: #e8e6f0;
+  --muted: #8983a8;
+  --accent: #7df0a0;
+  --accent2: #f07d9e;
+  --row: #211f30;
+  --rowbeat: #2c2942;
+  --rowbar: #3a3658;
+  --grid: #322e48;
+  --font: "Courier New", ui-monospace, monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font);
+  overflow: hidden;
+}
+
+#app { display: flex; flex-direction: column; height: 100vh; }
+
+#topbar, #settings {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  background: var(--panel);
+  border-bottom: 1px solid #000;
+}
+
+#topbar h1 {
+  font-size: 18px;
+  margin: 0;
+  letter-spacing: 2px;
+  color: var(--accent);
+}
+
+#settings {
+  background: var(--panel2);
+  font-size: 13px;
+  color: var(--muted);
+}
+#settings label { display: flex; align-items: center; gap: 6px; }
+
+.spacer { flex: 1; }
+.muted { color: var(--muted); font-size: 13px; }
+
+button, .file-btn, select {
+  background: var(--panel2);
+  color: var(--ink);
+  border: 1px solid var(--grid);
+  border-radius: 5px;
+  padding: 6px 12px;
+  font-family: var(--font);
+  font-size: 13px;
+  cursor: pointer;
+}
+button:hover:not(:disabled), .file-btn:hover { border-color: var(--accent); }
+button:disabled { opacity: 0.4; cursor: default; }
+.file-btn { display: inline-block; }
+
+#tracker-wrap {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+#tracker { display: block; }
+
+#tracker-wrap.dragover { outline: 2px dashed var(--accent); outline-offset: -8px; }

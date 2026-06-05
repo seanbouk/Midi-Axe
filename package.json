@@ -1,0 +1,20 @@
+{
+  "name": "midi-axe",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@tonejs/midi": "^2.0.28",
+    "tone": "^15.0.4"
+  },
+  "devDependencies": {
+    "playwright": "^1.60.0",
+    "typescript": "^5.5.4",
+    "vite": "^5.4.2"
+  }
+}

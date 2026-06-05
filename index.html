@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MIDI Axe — MIDI → NES Chiptune</title>
+  </head>
+  <body>
+    <div id="app">
+      <header id="topbar">
+        <h1>MIDI&nbsp;Axe</h1>
+        <label class="file-btn">
+          Load .mid
+          <input id="file" type="file" accept=".mid,.midi" hidden />
+        </label>
+        <span id="songinfo" class="muted">drop a MIDI file or click “Load .mid”</span>
+        <span class="spacer"></span>
+        <button id="play" disabled>▶ Play</button>
+        <button id="stop" disabled>■ Stop</button>
+        <button id="export" disabled>⬇ Export WAV</button>
+      </header>
+
+      <section id="settings">
+        <label>Rows / beat
+          <select id="rpb">
+            <option value="2">2</option>
+            <option value="4" selected>4</option>
+            <option value="6">6</option>
+            <option value="8">8</option>
+          </select>
+        </label>
+        <label>Loop <input id="loop" type="checkbox" /></label>
+      </section>
+
+      <main id="tracker-wrap">
+        <canvas id="tracker"></canvas>
+      </main>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
