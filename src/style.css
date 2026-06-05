@@ -51,6 +51,7 @@ html, body {
 
 .spacer { flex: 1; }
 .muted { color: var(--muted); font-size: 13px; }
+.sep { color: var(--grid); }
 
 button, .file-btn, select {
   background: var(--panel2);

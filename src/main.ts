@@ -18,6 +18,7 @@ const stopBtn = $("stop") as HTMLButtonElement;
 const exportBtn = $("export") as HTMLButtonElement;
 const rpbSelect = $("rpb") as HTMLSelectElement;
 const loopCheck = $("loop") as HTMLInputElement;
+const loopExportCheck = $("loopexport") as HTMLInputElement;
 const wrap = $("tracker-wrap");
 
 let song: Song | null = null;
@@ -200,21 +201,38 @@ function stopPlayback() {
 }
 stopBtn.addEventListener("click", stopPlayback);
 
+// While rendering, the Export button doubles as a Cancel button (clicking it
+// aborts the in-progress render) and shows live progress.
+let exportAbort: AbortController | null = null;
+
 exportBtn.addEventListener("click", async () => {
   if (!song) return;
-  exportBtn.disabled = true;
-  exportBtn.textContent = "rendering…";
+  if (exportAbort) {
+    exportAbort.abort();
+    return;
+  }
+  exportAbort = new AbortController();
+  const loop = loopExportCheck.checked;
+  exportBtn.textContent = "✕ Cancel (0%)";
   try {
-    const blob = await renderWav(song);
+    const blob = await renderWav(song, {
+      loop,
+      signal: exportAbort.signal,
+      onProgress: (p) => {
+        exportBtn.textContent = `✕ Cancel (${Math.round(p * 100)}%)`;
+      },
+    });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${song.name}-chiptune.wav`;
+    a.download = `${song.name}-chiptune${loop ? "-loop" : ""}.wav`;
     a.click();
     URL.revokeObjectURL(url);
+  } catch (e) {
+    if (!(e instanceof DOMException && e.name === "AbortError")) throw e;
   } finally {
+    exportAbort = null;
     exportBtn.textContent = "⬇ Export WAV";
-    exportBtn.disabled = false;
   }
 });
 
