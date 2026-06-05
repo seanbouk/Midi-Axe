@@ -85,11 +85,11 @@ export class TrackerView {
   draw() {
     const { ctx, song, width, height } = this;
     ctx.clearRect(0, 0, width, height);
-    ctx.fillStyle = "#14131c";
+    ctx.fillStyle = "#1c1c1c";
     ctx.fillRect(0, 0, width, height);
     if (!song) {
-      ctx.fillStyle = "#8983a8";
-      ctx.font = "14px 'Courier New', monospace";
+      ctx.fillStyle = "#9e9e9e";
+      ctx.font = "bold 14px 'Courier New', monospace";
       ctx.fillText("Load a MIDI file to begin.", 20, HEADER_H + 30);
       return;
     }
@@ -102,15 +102,15 @@ export class TrackerView {
     const sx = this.scrollX;
 
     // --- row backgrounds (full body width) + gutter numbers (fixed) ---
-    ctx.font = "12px 'Courier New', monospace";
+    ctx.font = "bold 12px 'Courier New', monospace";
     for (let r = startRow; r < endRow; r++) {
       const y = HEADER_H + (r - this.scrollRow) * ROW_H;
       ctx.fillStyle =
-        r % barRows === 0 ? "#3a3658" : r % rpb === 0 ? "#2c2942" : "#211f30";
+        r % barRows === 0 ? "#3c3c3c" : r % rpb === 0 ? "#2e2e2e" : "#242424";
       ctx.fillRect(GUTTER_W, y, width - GUTTER_W, ROW_H);
-      ctx.fillStyle = r % barRows === 0 ? "#1d1b2a" : "#181622";
+      ctx.fillStyle = r % barRows === 0 ? "#282828" : "#181818";
       ctx.fillRect(0, y, GUTTER_W, ROW_H);
-      ctx.fillStyle = r % barRows === 0 ? "#e8e6f0" : "#6f6a92";
+      ctx.fillStyle = r % barRows === 0 ? "#f2f2f2" : "#8a8a8a";
       ctx.fillText(String(r).padStart(4, " "), 8, y + 12);
     }
 
@@ -134,12 +134,12 @@ export class TrackerView {
         const h = Math.max(ROW_H - 1, note.lenRows * ROW_H - 1);
         ctx.fillStyle = track.color;
         ctx.fillRect(x + 4, y + 1, COL_W - 8, h);
-        ctx.fillStyle = "#14131c";
+        ctx.fillStyle = "#111111";
         ctx.font = "bold 12px 'Courier New', monospace";
         ctx.fillText(noteName(note.midi), x + 10, y + 12);
       }
       ctx.globalAlpha = 1;
-      ctx.strokeStyle = "#322e48";
+      ctx.strokeStyle = "#3a3a3a";
       ctx.beginPath();
       ctx.moveTo(x, HEADER_H);
       ctx.lineTo(x, height);
@@ -150,7 +150,7 @@ export class TrackerView {
     // --- playhead (fixed, spans gutter + body) ---
     if (this.playRow >= startRow - 1 && this.playRow <= endRow + 1) {
       const y = HEADER_H + (this.playRow - this.scrollRow) * ROW_H;
-      ctx.strokeStyle = "#f07d9e";
+      ctx.strokeStyle = "#e5362a";
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(0, y);
@@ -177,7 +177,7 @@ export class TrackerView {
 
   private drawHeader(song: Song, cols: number) {
     const { ctx } = this;
-    ctx.fillStyle = "#1d1b2a";
+    ctx.fillStyle = "#282828";
     ctx.fillRect(0, 0, this.width, HEADER_H);
     ctx.strokeStyle = "#000";
     ctx.beginPath();
@@ -196,19 +196,19 @@ export class TrackerView {
       // color chip + name
       ctx.fillStyle = track.color;
       ctx.fillRect(x + 6, 6, 10, 10);
-      ctx.fillStyle = "#e8e6f0";
+      ctx.fillStyle = "#f2f2f2";
       ctx.font = "bold 12px 'Courier New', monospace";
       ctx.fillText(this.fit(track.name, 13), x + 22, 15);
 
       // Mute / Solo toggles
-      this.chip(x + 6, 20, "M", track.muted, "#f07d9e");
-      this.chip(x + 28, 20, "S", track.solo, "#f0d77d");
+      this.chip(x + 6, 20, "M", track.muted, "#e5362a");
+      this.chip(x + 28, 20, "S", track.solo, "#f2f2f2");
 
       // voice label (click to cycle)
-      ctx.fillStyle = "#262338";
+      ctx.fillStyle = "#353535";
       ctx.fillRect(x + 6, 38, COL_W - 12, 14);
-      ctx.fillStyle = "#7df0a0";
-      ctx.font = "11px 'Courier New', monospace";
+      ctx.fillStyle = "#f2f2f2";
+      ctx.font = "bold 11px 'Courier New', monospace";
       ctx.fillText("♪ " + VOICE_LABELS[track.voice], x + 10, 49);
     }
     ctx.restore();
@@ -216,9 +216,9 @@ export class TrackerView {
 
   private chip(x: number, y: number, label: string, on: boolean, color: string) {
     const { ctx } = this;
-    ctx.fillStyle = on ? color : "#262338";
+    ctx.fillStyle = on ? color : "#353535";
     ctx.fillRect(x, y, 18, 16);
-    ctx.fillStyle = on ? "#14131c" : "#8983a8";
+    ctx.fillStyle = on ? "#111111" : "#9e9e9e";
     ctx.font = "bold 11px 'Courier New', monospace";
     ctx.fillText(label, x + 5, y + 12);
   }
