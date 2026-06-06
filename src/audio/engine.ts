@@ -153,6 +153,16 @@ export function refreshVoice(trackIndex: number) {
   node.voice = createVoice(ctx.song.tracks[trackIndex].patch, ac, node.gate);
 }
 
+// Apply a sound-font change live: load the new font's worklet module (if any)
+// into the running context BEFORE rebuilding voices, so FM/SID nodes can be
+// constructed. No-op when stopped (voices are rebuilt on the next play()).
+export async function applyFont(song: Song) {
+  if (state === "stopped" || !ac) return;
+  await getCurrentFont().prepare?.(ac);
+  if (!isPlaying() && !isPaused()) return; // stopped while the module loaded
+  song.tracks.forEach((_, i) => refreshVoice(i));
+}
+
 // Live rebuild of the timeline after a skip-rail edit; keeps the playhead in place.
 export function reschedule(song: Song) {
   if (state === "stopped" || !ctx) return;

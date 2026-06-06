@@ -3,7 +3,7 @@ import { parseMidi } from "./midi/parse";
 import { type Song } from "./model/song";
 import { TrackerView, GUTTER_W, COL_W } from "./tracker/render";
 import { Minimap } from "./tracker/minimap";
-import { isPaused, isPlaying, pause, play, refreshVoice, reschedule, resume, seek, stop, updateMix } from "./audio/engine";
+import { applyFont, isPaused, isPlaying, pause, play, refreshVoice, reschedule, resume, seek, stop, updateMix } from "./audio/engine";
 import { renderWav } from "./audio/exportWav";
 import { assignPatches, getCurrentFont, listFonts, nextPatch, setCurrentFont } from "./audio/fonts";
 import { applyTheme } from "./audio/theme";
@@ -288,8 +288,8 @@ fontSelect.addEventListener("change", () => {
   if (song) {
     assignPatches(song); // re-run the new font's auto-assign for every track
     minimap.setSong(song); // rebuild minimap cache with the new background
-    // rebuild every live voice so the new timbres play without stopping
-    song.tracks.forEach((_, i) => refreshVoice(i));
+    // load the new font's worklet module (if any) then rebuild live voices
+    void applyFont(song);
   }
   drawAll();
 });
