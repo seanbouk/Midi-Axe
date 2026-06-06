@@ -52,7 +52,6 @@
       </label>
       <button id="measure">Measure levels</button>
       <span id="status" class="muted"></span>
-      <span class="muted">click cells to audition · jot notes · Copy report → paste to Claude</span>
     </header>
 
     <div class="cols">
@@ -71,18 +70,6 @@
         <div id="levels"><span class="muted">click “Measure levels”.</span></div>
       </section>
     </div>
-
-    <section>
-      <h2>Notes for Claude</h2>
-      <textarea id="notes" rows="5" placeholder="What sounds off? e.g.:
-- C64 Saw at C4 too quiet and dull
-- X68000 FM Bell rings too long
-- Mega Drive PSG Square harsh in the high notes"></textarea>
-      <div style="margin-top:10px">
-        <button id="copy">Copy report to clipboard</button>
-        <span id="copied"></span>
-      </div>
-    </section>
 
     <script type="module" src="/src/debug.ts"></script>
   </body>

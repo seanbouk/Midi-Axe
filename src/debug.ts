@@ -13,7 +13,6 @@ const fontSel = $("font") as HTMLSelectElement;
 const holdSel = $("hold") as HTMLSelectElement;
 const grid = $("grid");
 const levelsEl = $("levels");
-const notesEl = $("notes") as HTMLTextAreaElement;
 const scope = $("scope") as HTMLCanvasElement;
 const spec = $("spec") as HTMLCanvasElement;
 
@@ -196,24 +195,6 @@ function buildGrid() {
   grid.appendChild(table);
 }
 
-// --- report --------------------------------------------------------------
-function buildReport(): string {
-  const f = getCurrentFont();
-  const lines = [
-    `MIDI Axe — sound report`,
-    `Font: ${f.label} (${f.id})   note length: ${holdSel.options[holdSel.selectedIndex].text}`,
-    ``,
-    `Levels (raw render of C4 — peak / rms dB):`,
-    ...(lastLevels.length
-      ? lastLevels.map((l) => `  ${l.label.padEnd(20)} ${dbStr(l.peakDb)} / ${dbStr(l.rmsDb)} dB`)
-      : ["  (not measured — click “Measure levels”)"]),
-    ``,
-    `Notes:`,
-    notesEl.value.trim() || "  (none)",
-  ];
-  return lines.join("\n");
-}
-
 // --- wiring --------------------------------------------------------------
 for (const f of listFonts()) {
   const o = document.createElement("option");
@@ -224,6 +205,9 @@ for (const f of listFonts()) {
 fontSel.value = getCurrentFont().id;
 applyTheme(getCurrentFont().theme);
 buildGrid();
+// Start audio + preload samples on page load (context starts suspended; the
+// first press just resumes it), so there's no slow first note.
+ensureAudio();
 
 fontSel.addEventListener("change", () => {
   setCurrentFont(fontSel.value); // swaps theme + current font
@@ -235,13 +219,3 @@ fontSel.addEventListener("change", () => {
 });
 
 $("measure").addEventListener("click", () => void measureLevels());
-
-$("copy").addEventListener("click", async () => {
-  try {
-    await navigator.clipboard.writeText(buildReport());
-    $("copied").textContent = "copied ✓";
-  } catch {
-    $("copied").textContent = "copy failed — select & copy the textarea";
-  }
-  setTimeout(() => ($("copied").textContent = ""), 2500);
-});
