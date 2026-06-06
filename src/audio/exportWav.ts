@@ -24,6 +24,8 @@ export async function renderWav(song: Song, opts: ExportOptions = {}): Promise<B
   const totalFrames = Math.max(1, Math.ceil(totalSec * sampleRate));
 
   const ctx = new OfflineAudioContext(channels, totalFrames, sampleRate);
+  // load context-level setup (FM AudioWorklet module) before building voices
+  await getCurrentFont().prepare?.(ctx);
   const master = createMasterBus(ctx);
   const anySolo = song.tracks.some((t) => t.solo);
   const built: { voice: ReturnType<typeof createVoice>; notes: typeof schedule.tracks[number] }[] = [];

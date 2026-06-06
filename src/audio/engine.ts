@@ -1,30 +1,39 @@
-import * as Tone from "tone";
 import { buildSchedule, secondsPerRow, type Schedule, type Song } from "../model/song";
 import { createMasterBus, type MasterBus, type Voice } from "./voices";
 import { createVoice, getCurrentFont } from "./fonts";
 
-// Live playback engine. One raw-Web-Audio Voice per track behind a per-track
-// gain "gate" (whose level is the track volume, or 0 when muted/un-soloed), all
-// scheduled on Tone's Transport. Playback always loops over the compacted
-// timeline (skipped rows removed). Mute/Solo/volume take effect instantly by
-// ramping the gates; the minimap can seek by moving the transport.
+// Live playback engine on a plain native AudioContext (NOT Tone — Tone wraps the
+// context with standardized-audio-context, whose nodes lack `detune` and reject
+// the native AudioWorkletNode constructor; the FM worklet needs a real context).
+// One Voice per track behind a per-track gain "gate"; playback always loops the
+// compacted timeline. A lookahead scheduler arms notes ~120ms ahead, which keeps
+// seeking cheap (only that window is ever pre-scheduled).
 
 type TransportState = "stopped" | "playing" | "paused";
+type Ev = { track: number; time: number; dur: number; midi: number; vel: number };
 
-interface TrackNode {
-  voice: Voice;
-  gate: GainNode;
-}
-
-let nodes: TrackNode[] = [];
+let ac: AudioContext | null = null;
+let nodes: { voice: Voice; gate: GainNode }[] = [];
 let masterBus: MasterBus | null = null;
-let audioCtx: BaseAudioContext | null = null;
-let rafId = 0;
 let state: TransportState = "stopped";
 
-let ctx:
-  | { song: Song; spr: number; schedule: Schedule; onRow: (row: number) => void }
-  | null = null;
+let events: Ev[] = [];
+let evIndex = 0;
+let loopDur = 0;
+let iterStart = 0; // ac time of the current loop iteration's logical 0 (advances)
+let playStart = 0; // ac time of logical 0 for the playhead (fixed while playing)
+let schedTimer = 0;
+let rafId = 0;
+
+let ctx: { song: Song; spr: number; schedule: Schedule; onRow: (row: number) => void } | null = null;
+
+const LOOKAHEAD = 0.12; // seconds scheduled ahead
+const SCHED_MS = 25;
+
+function getAC(): AudioContext {
+  if (!ac) ac = new AudioContext();
+  return ac;
+}
 
 export function isPlaying() {
   return state === "playing";
@@ -34,102 +43,92 @@ export function isPaused() {
 }
 
 function applyMix(song: Song) {
+  const now = getAC().currentTime;
   const anySolo = song.tracks.some((t) => t.solo);
-  const now = audioCtx?.currentTime ?? 0;
   song.tracks.forEach((t, i) => {
     const audible = anySolo ? t.solo : !t.muted;
     nodes[i]?.gate.gain.setTargetAtTime(audible ? t.volume : 0, now, 0.012);
   });
 }
 
-// Live update of Mute / Solo / volume while playing or paused.
 export function updateMix(song: Song) {
   if (state !== "stopped") applyMix(song);
 }
 
-export async function play(song: Song, onRow: (row: number) => void): Promise<void> {
-  await Tone.start();
-  stop();
+function buildEvents(schedule: Schedule) {
+  events = [];
+  schedule.tracks.forEach((notes, i) => {
+    for (const n of notes) events.push({ track: i, time: n.time, dur: n.durSec, midi: n.midi, vel: n.velocity });
+  });
+  events.sort((a, b) => a.time - b.time);
+  loopDur = Math.max(ctx!.spr, schedule.totalSec);
+}
 
-  const transport = Tone.getTransport();
-  const rawCtx = Tone.getContext().rawContext as BaseAudioContext;
-  audioCtx = rawCtx;
+// schedule everything due before the lookahead horizon, wrapping at the loop end
+function scheduleAhead() {
+  if (state !== "playing" || !ctx || events.length === 0) return;
+  const horizon = getAC().currentTime + LOOKAHEAD;
+  for (let guard = 0; guard < events.length * 2 + 4; guard++) {
+    if (evIndex >= events.length) {
+      iterStart += loopDur;
+      evIndex = 0;
+    }
+    const e = events[evIndex];
+    const at = iterStart + e.time;
+    if (at > horizon) break;
+    nodes[e.track]?.voice.trigger(e.midi, e.dur, Math.max(at, getAC().currentTime), e.vel);
+    evIndex++;
+  }
+}
+
+function firstEventAtOrAfter(t: number) {
+  let lo = 0, hi = events.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (events[mid].time < t) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+export async function play(song: Song, onRow: (row: number) => void): Promise<void> {
+  stop();
+  const cur = getAC();
+  await cur.resume();
   const spr = secondsPerRow(song);
   const schedule = buildSchedule(song);
   ctx = { song, spr, schedule, onRow };
 
-  masterBus = createMasterBus(rawCtx);
+  // FM AudioWorklet module must be loaded before its voices are created
+  await getCurrentFont().prepare?.(cur);
+
+  masterBus = createMasterBus(cur);
   nodes = song.tracks.map((track) => {
-    const gate = rawCtx.createGain();
+    const gate = cur.createGain();
     gate.gain.value = 0;
     gate.connect(masterBus!.input);
-    const voice = createVoice(track.patch, rawCtx, gate);
-    return { voice, gate };
+    return { voice: createVoice(track.patch, cur, gate), gate };
   });
-
-  scheduleAll();
   applyMix(song);
 
-  transport.loop = true; // always loop the compacted timeline
-  transport.loopStart = 0;
-  transport.loopEnd = Math.max(spr, schedule.totalSec);
-  transport.position = 0;
+  buildEvents(schedule);
   state = "playing";
 
-  // Wait for any sample loads (MIDI font). Setting state first means a Stop
-  // during loading flips state to "stopped" and we bail without starting.
-  await getCurrentFont().ready?.();
+  await getCurrentFont().ready?.(); // MIDI sample loads
   if (state !== "playing") return;
 
-  transport.start();
+  iterStart = playStart = cur.currentTime + 0.08;
+  evIndex = 0;
+  scheduleAhead();
+  schedTimer = window.setInterval(scheduleAhead, SCHED_MS);
   startTick();
 }
 
-// Arm the transport with the current schedule. Callbacks read nodes[i].voice
-// dynamically so a live voice swap (refreshVoice) affects subsequent notes.
-function scheduleAll() {
-  if (!ctx) return;
-  const transport = Tone.getTransport();
-  ctx.schedule.tracks.forEach((notes, i) => {
-    for (const note of notes) {
-      transport.schedule((time) => {
-        nodes[i]?.voice.trigger(note.midi, note.durSec, time, note.velocity);
-      }, note.time);
-    }
-  });
-}
-
-// Live swap a track's voice (timbre) without stopping playback. The persistent
-// oscillator pool is rebuilt on the same gate; in-flight notes from the old
-// voice cut off, subsequent notes use the new timbre.
-export function refreshVoice(trackIndex: number) {
-  if (state === "stopped" || !ctx || !audioCtx) return;
-  const node = nodes[trackIndex];
-  if (!node) return;
-  node.voice.dispose();
-  node.voice = createVoice(ctx.song.tracks[trackIndex].patch, audioCtx, node.gate);
-}
-
-// Live rebuild of the timeline after a skip-rail edit: recompute the compacted
-// schedule, re-arm the transport, and re-place the playhead on the same content.
-export function reschedule(song: Song) {
-  if (state === "stopped" || !ctx) return;
-  const transport = Tone.getTransport();
-  const currentRow = compactedToRow(ctx);
-  ctx.song = song;
-  ctx.schedule = buildSchedule(song);
-  transport.cancel();
-  scheduleAll();
-  transport.loopEnd = Math.max(ctx.spr, ctx.schedule.totalSec);
-  seek(currentRow);
-}
-
-// Map the transport's compacted-timeline position back to an original row for
-// the playhead/minimap (which display the un-compacted song).
-function compactedToRow(c: { spr: number; schedule: Schedule }): number {
-  const rows = c.schedule.activeRows;
+// compacted-timeline position (seconds) -> original row for the playhead
+function rowAt(posSec: number): number {
+  const rows = ctx!.schedule.activeRows;
   if (rows.length === 0) return 0;
-  const pos = Tone.getTransport().seconds / c.spr;
+  const pos = posSec / ctx!.spr;
   const idx = Math.min(rows.length - 1, Math.max(0, Math.floor(pos)));
   return rows[idx] + (pos - idx);
 }
@@ -137,19 +136,41 @@ function compactedToRow(c: { spr: number; schedule: Schedule }): number {
 function startTick() {
   const tick = () => {
     if (state !== "playing" || !ctx) return;
-    ctx.onRow(compactedToRow(ctx));
+    let elapsed = getAC().currentTime - playStart;
+    if (elapsed < 0) elapsed = 0;
+    ctx.onRow(rowAt(elapsed % loopDur));
     rafId = requestAnimationFrame(tick);
   };
   rafId = requestAnimationFrame(tick);
 }
 
-// Seek to (the nearest enabled row to) an original row index. Used by the
-// minimap scrubber; moves the transport so it works while playing or paused.
+// Live swap a track's voice (timbre) without stopping playback.
+export function refreshVoice(trackIndex: number) {
+  if (state === "stopped" || !ctx || !ac) return;
+  const node = nodes[trackIndex];
+  if (!node) return;
+  node.voice.dispose();
+  node.voice = createVoice(ctx.song.tracks[trackIndex].patch, ac, node.gate);
+}
+
+// Live rebuild of the timeline after a skip-rail edit; keeps the playhead in place.
+export function reschedule(song: Song) {
+  if (state === "stopped" || !ctx) return;
+  const pos = ((getAC().currentTime - playStart) % loopDur) || 0;
+  ctx.song = song;
+  ctx.schedule = buildSchedule(song);
+  buildEvents(ctx.schedule);
+  const clamped = Math.min(pos, loopDur);
+  iterStart = playStart = getAC().currentTime - clamped;
+  evIndex = firstEventAtOrAfter(clamped);
+}
+
+// Seek to the nearest enabled row; works while playing or paused.
 export function seek(originalRow: number) {
   if (!ctx) return;
   const { schedule, spr } = ctx;
   const n = schedule.newIndexOf.length;
-  let r = Math.max(0, Math.min(n - 1, Math.round(originalRow)));
+  const r = Math.max(0, Math.min(n - 1, Math.round(originalRow)));
   let idx = schedule.newIndexOf[r];
   if (idx < 0) {
     for (let d = 1; d < n; d++) {
@@ -158,13 +179,15 @@ export function seek(originalRow: number) {
     }
   }
   if (idx < 0) return;
-  Tone.getTransport().seconds = idx * spr;
-  ctx.onRow(compactedToRow(ctx));
+  const target = idx * spr;
+  iterStart = playStart = getAC().currentTime - target;
+  evIndex = firstEventAtOrAfter(target);
+  ctx.onRow(rowAt(target));
 }
 
 export function pause() {
   if (state !== "playing") return;
-  Tone.getTransport().pause();
+  void getAC().suspend();
   state = "paused";
   if (rafId) cancelAnimationFrame(rafId);
   rafId = 0;
@@ -172,7 +195,7 @@ export function pause() {
 
 export function resume() {
   if (state !== "paused") return;
-  Tone.getTransport().start();
+  void getAC().resume();
   state = "playing";
   startTick();
 }
@@ -185,17 +208,15 @@ function clearNodes() {
   nodes = [];
   masterBus?.dispose();
   masterBus = null;
-  audioCtx = null;
 }
 
 export function stop() {
-  const transport = Tone.getTransport();
-  transport.stop();
-  transport.cancel();
-  transport.loop = false;
-  if (rafId) cancelAnimationFrame(rafId);
-  rafId = 0;
+  if (schedTimer) { clearInterval(schedTimer); schedTimer = 0; }
+  if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
+  if (ac && ac.state === "suspended") void ac.resume(); // un-suspend for next play
   state = "stopped";
   ctx = null;
+  events = [];
+  evIndex = 0;
   clearNodes();
 }

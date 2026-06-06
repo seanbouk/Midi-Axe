@@ -1,6 +1,6 @@
 import type { Track } from "../model/song";
 import { applyTheme, type Theme } from "./theme";
-import { fmVoice, noiseVoice, oscVoice, sidVoice, wavetableVoice, type Voice } from "./voices";
+import { ensureFmModule, fmVoice, noiseVoice, oscVoice, sidVoice, wavetableVoice, type Voice } from "./voices";
 import { FM_BANK, FM_LABELS, FM_MAP } from "./fmbank";
 import { PCE_WAVES } from "./pcewaves";
 import { MIDI_FONT } from "./midifont";
@@ -22,7 +22,11 @@ export interface SoundFont {
   theme: Theme;
   autoAssign(track: Track, index: number): string;
   createVoice(patchId: string, ctx: BaseAudioContext, output: AudioNode): Voice;
-  // optional async asset preload (MIDI samples); awaited before play/export
+  // optional async setup that must finish BEFORE voices are created in a
+  // context (e.g. loading the FM AudioWorklet module)
+  prepare?(ctx: BaseAudioContext): Promise<void>;
+  // optional async asset preload awaited AFTER voices are created, before
+  // playback/scheduling (MIDI samples)
   ready?(): Promise<void>;
 }
 
@@ -136,6 +140,7 @@ const X68000: SoundFont = {
   },
   autoAssign: (t, i) =>
     assign(t, i, "fm_noise", "fm_bass", ["fm_synbrass", "fm_lead_saw", "fm_ep", "fm_brass", "fm_pad", "fm_bell"]),
+  prepare: (ctx) => ensureFmModule(ctx),
   createVoice(id, ctx, out) {
     return id === "fm_noise" ? noiseVoice(ctx, out) : fmFromBank(id, ctx, out);
   },
@@ -157,6 +162,7 @@ const MEGADRIVE: SoundFont = {
     gutter: "#111218", skipRail: "#0c0d11",
   },
   autoAssign: (t, i) => assign(t, i, "psg_noise", "fm_bass_fb", ["fm_synbrass", "fm_lead_saw", "psg_square", "fm_ep"]),
+  prepare: (ctx) => ensureFmModule(ctx),
   createVoice(id, ctx, out) {
     if (id === "psg_square") return oscVoice(ctx, out, { kind: "native", type: "square" }, 0.24);
     if (id === "psg_noise") return noiseVoice(ctx, out);
