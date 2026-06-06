@@ -14,7 +14,9 @@
           <input id="file" type="file" accept=".mid,.midi" hidden />
         </label>
         <span id="songinfo" class="muted">drop a MIDI file or click “Load .mid”</span>
-        <span class="spacer"></span>
+        <div id="mini-wrap" title="Song overview — click or drag to seek">
+          <canvas id="minimap"></canvas>
+        </div>
         <button id="play" disabled>▶ Play</button>
         <button id="pause" disabled>⏸ Pause</button>
         <button id="stop" disabled>■ Stop</button>
@@ -30,9 +32,8 @@
             <option value="8">8</option>
           </select>
         </label>
-        <label>Loop playback <input id="loop" type="checkbox" /></label>
         <span class="sep">|</span>
-        <label title="Export the cropped region as a seamless loop (folds the release tail back onto the start, no trailing silence)">Seamless loop export <input id="loopexport" type="checkbox" /></label>
+        <span class="muted">drag the left rail to skip/keep rows · hold <b>S</b> to solo · playback loops · export is a seamless loop</span>
       </section>
 
       <main id="tracker-wrap">

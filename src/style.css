@@ -57,6 +57,19 @@ html, body {
 .muted { color: var(--muted); font-size: 13px; }
 .sep { color: var(--grid); }
 
+#mini-wrap {
+  flex: 1;
+  min-width: 120px;
+  height: 46px;
+  margin: 0 12px;
+  background: #141414;
+  border: 1px solid var(--grid);
+  border-radius: 4px;
+  overflow: hidden;
+  cursor: pointer;
+}
+#minimap { display: block; width: 100%; height: 100%; }
+
 button, .file-btn, select {
   background: var(--panel2);
   color: var(--ink);

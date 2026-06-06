@@ -1,11 +1,12 @@
 import * as Tone from "tone";
-import { secondsPerRow, type Song } from "../model/song";
+import { buildSchedule, secondsPerRow, type Schedule, type Song } from "../model/song";
 import { createMasterBus, createVoice, type MasterBus, type Voice } from "./voices";
 
-// Live playback engine. Builds one raw-Web-Audio Voice per track behind a
-// per-track gain "gate", scheduled on Tone's Transport (kept for its tidy
-// pause/resume/loop). Building all tracks up front means Mute/Solo take effect
-// instantly — toggling just ramps a gate's gain instead of rescheduling.
+// Live playback engine. One raw-Web-Audio Voice per track behind a per-track
+// gain "gate" (whose level is the track volume, or 0 when muted/un-soloed), all
+// scheduled on Tone's Transport. Playback always loops over the compacted
+// timeline (skipped rows removed). Mute/Solo/volume take effect instantly by
+// ramping the gates; the minimap can seek by moving the transport.
 
 type TransportState = "stopped" | "playing" | "paused";
 
@@ -20,7 +21,9 @@ let audioCtx: BaseAudioContext | null = null;
 let rafId = 0;
 let state: TransportState = "stopped";
 
-let ctx: { song: Song; spr: number; start: number; onRow: (row: number) => void } | null = null;
+let ctx:
+  | { song: Song; spr: number; schedule: Schedule; onRow: (row: number) => void }
+  | null = null;
 
 export function isPlaying() {
   return state === "playing";
@@ -34,20 +37,16 @@ function applyMix(song: Song) {
   const now = audioCtx?.currentTime ?? 0;
   song.tracks.forEach((t, i) => {
     const audible = anySolo ? t.solo : !t.muted;
-    nodes[i]?.gate.gain.setTargetAtTime(audible ? 1 : 0, now, 0.012);
+    nodes[i]?.gate.gain.setTargetAtTime(audible ? t.volume : 0, now, 0.012);
   });
 }
 
+// Live update of Mute / Solo / volume while playing or paused.
 export function updateMix(song: Song) {
   if (state !== "stopped") applyMix(song);
 }
 
-export async function play(
-  song: Song,
-  onRow: (row: number) => void,
-  onEnd: () => void,
-  loop: boolean,
-): Promise<void> {
+export async function play(song: Song, onRow: (row: number) => void): Promise<void> {
   await Tone.start();
   stop();
 
@@ -55,10 +54,8 @@ export async function play(
   const rawCtx = Tone.getContext().rawContext as BaseAudioContext;
   audioCtx = rawCtx;
   const spr = secondsPerRow(song);
-  const start = song.cropStart;
-  const end = song.cropEnd;
-  const spanSec = (end - start) * spr;
-  ctx = { song, spr, start, onRow };
+  const schedule = buildSchedule(song);
+  ctx = { song, spr, schedule, onRow };
 
   masterBus = createMasterBus(rawCtx);
   nodes = song.tracks.map((track) => {
@@ -69,43 +66,62 @@ export async function play(
     return { voice, gate };
   });
 
-  song.tracks.forEach((track, i) => {
+  schedule.tracks.forEach((notes, i) => {
     const { voice } = nodes[i];
-    for (const note of track.notes) {
-      if (note.row < start || note.row >= end) continue;
-      const t = (note.row - start) * spr;
-      const durSec = Math.max(0.03, note.lenRows * spr * 0.95);
+    for (const note of notes) {
       transport.schedule((time) => {
-        voice.trigger(note.midi, durSec, time, note.velocity);
-      }, t);
+        voice.trigger(note.midi, note.durSec, time, note.velocity);
+      }, note.time);
     }
   });
   applyMix(song);
 
-  transport.loop = loop;
+  transport.loop = true; // always loop the compacted timeline
   transport.loopStart = 0;
-  transport.loopEnd = spanSec;
+  transport.loopEnd = Math.max(spr, schedule.totalSec);
   transport.position = 0;
   state = "playing";
-
-  if (!loop) {
-    transport.schedule(() => {
-      Tone.getDraw().schedule(() => stopInternal(onEnd), Tone.now());
-    }, spanSec + 0.05);
-  }
 
   transport.start();
   startTick();
 }
 
+// Map the transport's compacted-timeline position back to an original row for
+// the playhead/minimap (which display the un-compacted song).
+function compactedToRow(c: { spr: number; schedule: Schedule }): number {
+  const rows = c.schedule.activeRows;
+  if (rows.length === 0) return 0;
+  const pos = Tone.getTransport().seconds / c.spr;
+  const idx = Math.min(rows.length - 1, Math.max(0, Math.floor(pos)));
+  return rows[idx] + (pos - idx);
+}
+
 function startTick() {
   const tick = () => {
     if (state !== "playing" || !ctx) return;
-    const transport = Tone.getTransport();
-    ctx.onRow(ctx.start + transport.seconds / ctx.spr);
+    ctx.onRow(compactedToRow(ctx));
     rafId = requestAnimationFrame(tick);
   };
   rafId = requestAnimationFrame(tick);
+}
+
+// Seek to (the nearest enabled row to) an original row index. Used by the
+// minimap scrubber; moves the transport so it works while playing or paused.
+export function seek(originalRow: number) {
+  if (!ctx) return;
+  const { schedule, spr } = ctx;
+  const n = schedule.newIndexOf.length;
+  let r = Math.max(0, Math.min(n - 1, Math.round(originalRow)));
+  let idx = schedule.newIndexOf[r];
+  if (idx < 0) {
+    for (let d = 1; d < n; d++) {
+      if (r + d < n && schedule.newIndexOf[r + d] >= 0) { idx = schedule.newIndexOf[r + d]; break; }
+      if (r - d >= 0 && schedule.newIndexOf[r - d] >= 0) { idx = schedule.newIndexOf[r - d]; break; }
+    }
+  }
+  if (idx < 0) return;
+  Tone.getTransport().seconds = idx * spr;
+  ctx.onRow(compactedToRow(ctx));
 }
 
 export function pause() {
@@ -134,7 +150,7 @@ function clearNodes() {
   audioCtx = null;
 }
 
-function stopInternal(onEnd?: () => void) {
+export function stop() {
   const transport = Tone.getTransport();
   transport.stop();
   transport.cancel();
@@ -144,9 +160,4 @@ function stopInternal(onEnd?: () => void) {
   state = "stopped";
   ctx = null;
   clearNodes();
-  onEnd?.();
-}
-
-export function stop() {
-  stopInternal();
 }

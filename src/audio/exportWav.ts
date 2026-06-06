@@ -1,43 +1,42 @@
-import { audibleTracks, secondsPerRow, type Song } from "../model/song";
+import { buildSchedule, type Song } from "../model/song";
 import { createMasterBus, createVoice } from "./voices";
 
-// Render the filtered + voiced song into a WAV using a plain OfflineAudioContext
-// (no Tone here): every note is scheduled up front via the raw voices, which
-// renders far faster than real time. We drive a progress bar and support cancel
-// by scheduling OfflineAudioContext.suspend() points across the timeline.
+// Render the song (skipped rows compacted out, per-track volumes applied) into a
+// WAV on a plain OfflineAudioContext. Always rendered as a seamless loop: we
+// render an extra tail past the end and fold it back onto the start, so the clip
+// loops cleanly in Unity with no trailing silence. Progress + cancel are driven
+// by OfflineAudioContext.suspend()/resume() points.
 
-const TAIL_SEC = 0.6; // captures note release/decay past the last/loop boundary
+const TAIL_SEC = 0.6;
 
 export interface ExportOptions {
-  loop?: boolean; // seamless loop: fold the tail back onto the start, no trailing silence
   onProgress?: (p: number) => void; // 0..1
   signal?: AbortSignal;
 }
 
 export async function renderWav(song: Song, opts: ExportOptions = {}): Promise<Blob> {
-  const spr = secondsPerRow(song);
-  const start = song.cropStart;
-  const end = song.cropEnd;
-  const loopSec = (end - start) * spr;
+  const schedule = buildSchedule(song);
+  const loopSec = schedule.totalSec;
   const totalSec = loopSec + TAIL_SEC;
   const sampleRate = 44100;
   const channels = 2;
-  const totalFrames = Math.ceil(totalSec * sampleRate);
+  const totalFrames = Math.max(1, Math.ceil(totalSec * sampleRate));
 
   const ctx = new OfflineAudioContext(channels, totalFrames, sampleRate);
   const master = createMasterBus(ctx);
-  for (const track of audibleTracks(song)) {
-    const voice = createVoice(track.voice, ctx, master.input);
-    for (const note of track.notes) {
-      if (note.row < start || note.row >= end) continue;
-      const t = (note.row - start) * spr;
-      const durSec = Math.max(0.03, note.lenRows * spr * 0.95);
-      voice.trigger(note.midi, durSec, t, note.velocity);
-    }
-  }
+  schedule.tracks.forEach((notes, i) => {
+    const track = song.tracks[i];
+    const anySolo = song.tracks.some((t) => t.solo);
+    const audible = anySolo ? track.solo : !track.muted;
+    if (!audible) return;
+    const gate = ctx.createGain();
+    gate.gain.value = track.volume;
+    gate.connect(master.input);
+    const voice = createVoice(track.voice, ctx, gate);
+    for (const note of notes) voice.trigger(note.midi, note.durSec, note.time, note.velocity);
+  });
 
-  // Progress + cancel: suspend at evenly-spaced points, report progress, and
-  // either resume or (if cancelled) bail out leaving the context paused.
+  // Progress + cancel via suspend/resume checkpoints.
   const steps = 20;
   for (let i = 1; i < steps; i++) {
     const at = (totalSec * i) / steps;
@@ -55,23 +54,15 @@ export async function renderWav(song: Song, opts: ExportOptions = {}): Promise<B
   if (!rendered) throw new DOMException("Export cancelled", "AbortError");
   opts.onProgress?.(1);
 
-  // Pull channel data out so we can fold/trim before encoding.
   const data: Float32Array[] = [];
   for (let c = 0; c < channels; c++) data.push(rendered.getChannelData(c).slice());
 
-  let outFrames: number;
-  if (opts.loop) {
-    // Seamless loop: keep exactly the loop body, and add the overflow tail
-    // (notes still ringing past the loop end) back onto the start — so when the
-    // clip wraps end->start in Unity, decaying voices continue uninterrupted.
-    outFrames = Math.floor(loopSec * sampleRate);
-    for (const ch of data) {
-      const tailFrames = Math.min(ch.length - outFrames, outFrames);
-      for (let i = 0; i < tailFrames; i++) ch[i] += ch[outFrames + i];
-    }
-  } else {
-    // One-shot: keep the full render including the natural decay tail.
-    outFrames = rendered.length;
+  // Seamless loop: keep exactly the loop body and fold the overflow tail (notes
+  // still ringing past the end) back onto the start, so end->start wraps cleanly.
+  const outFrames = Math.max(1, Math.floor(loopSec * sampleRate));
+  for (const ch of data) {
+    const tailFrames = Math.min(ch.length - outFrames, outFrames);
+    for (let i = 0; i < tailFrames; i++) ch[i] += ch[outFrames + i];
   }
 
   return encodeWav(data, outFrames, sampleRate);
@@ -80,8 +71,7 @@ export async function renderWav(song: Song, opts: ExportOptions = {}): Promise<B
 function encodeWav(channels: Float32Array[], numFrames: number, sampleRate: number): Blob {
   const numCh = channels.length;
 
-  // Peak-normalize to -0.3 dBFS over the frames we are keeping. (Synthesized
-  // silence is true zero, so there is no noise floor to amplify.)
+  // Peak-normalize to -0.3 dBFS (synthesized silence is true zero — no floor).
   let peak = 0;
   for (const ch of channels)
     for (let i = 0; i < numFrames; i++) {

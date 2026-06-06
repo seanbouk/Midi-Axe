@@ -64,6 +64,7 @@ export function parseMidi(
       muted: false,
       solo: false,
       voice: autoVoice(isDrum, avgMidi, tracks.length),
+      volume: 0.85,
       color: TRACK_COLORS[tracks.length % TRACK_COLORS.length],
       notes,
     });
@@ -75,7 +76,6 @@ export function parseMidi(
     rowsPerBeat,
     lengthRows,
     tracks,
-    cropStart: 0,
-    cropEnd: lengthRows,
+    skipped: new Array(lengthRows).fill(false),
   };
 }

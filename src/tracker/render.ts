@@ -1,19 +1,21 @@
 import { noteName, VOICE_LABELS, type Song } from "../model/song";
 
-// Canvas-based FamiTracker-style grid: a fixed header row of track columns
-// (name + Mute/Solo toggles + clickable voice label), a left gutter of row
-// numbers, and the note cells flowing top-to-bottom. Drawn imperatively because
-// a DOM cell per note would be far too heavy for long songs.
+// Canvas-based FamiTracker-style grid. Left gutter has a per-row enable/skip
+// rail plus row numbers; the header row per track carries name + Mute/Solo +
+// voice + a volume slider; note cells flow top-to-bottom. Drawn imperatively
+// because a DOM cell per note would be far too heavy for long songs.
 
 export const ROW_H = 16;
-export const HEADER_H = 54;
-export const GUTTER_W = 56;
+export const HEADER_H = 74;
+export const SKIP_W = 16; // leftmost enable/skip rail
+export const GUTTER_W = 64; // skip rail + row numbers
 export const COL_W = 132;
 
 export type HeaderHit =
   | { type: "mute"; track: number }
   | { type: "solo"; track: number }
-  | { type: "voice"; track: number };
+  | { type: "voice"; track: number }
+  | { type: "volume"; track: number; frac: number };
 
 export class TrackerView {
   ctx: CanvasRenderingContext2D;
@@ -61,17 +63,27 @@ export class TrackerView {
     return Math.floor((y - HEADER_H) / ROW_H + this.scrollRow);
   }
 
+  // is the pointer over the leftmost enable/skip rail (in the body)?
+  inSkipRail(x: number, y: number) {
+    return y > HEADER_H && x >= 0 && x < SKIP_W;
+  }
+
   headerHit(x: number, y: number): HeaderHit | null {
     if (!this.song || y > HEADER_H || x < GUTTER_W) return null;
     const cx = x - GUTTER_W + this.scrollX;
     const i = Math.floor(cx / COL_W);
     if (i < 0 || i >= this.song.tracks.length) return null;
     const localX = cx - i * COL_W;
-    if (y >= 20 && y <= 36) {
+    if (y >= 22 && y <= 38) {
       if (localX >= 6 && localX <= 24) return { type: "mute", track: i };
       if (localX >= 28 && localX <= 46) return { type: "solo", track: i };
+      return null;
     }
-    if (y > 36) return { type: "voice", track: i };
+    if (y >= 42 && y <= 56) return { type: "voice", track: i };
+    if (y >= 58) {
+      const frac = Math.max(0, Math.min(1, (localX - 6) / (COL_W - 12)));
+      return { type: "volume", track: i, frac };
+    }
     return null;
   }
 
@@ -101,17 +113,27 @@ export class TrackerView {
     const cols = song.tracks.length;
     const sx = this.scrollX;
 
-    // --- row backgrounds (full body width) + gutter numbers (fixed) ---
+    // --- row backgrounds (full body width) + gutter (skip rail + numbers) ---
     ctx.font = "bold 12px 'Courier New', monospace";
     for (let r = startRow; r < endRow; r++) {
       const y = HEADER_H + (r - this.scrollRow) * ROW_H;
       ctx.fillStyle =
         r % barRows === 0 ? "#3c3c3c" : r % rpb === 0 ? "#2e2e2e" : "#242424";
       ctx.fillRect(GUTTER_W, y, width - GUTTER_W, ROW_H);
+
+      // gutter background
       ctx.fillStyle = r % barRows === 0 ? "#282828" : "#181818";
-      ctx.fillRect(0, y, GUTTER_W, ROW_H);
+      ctx.fillRect(SKIP_W, y, GUTTER_W - SKIP_W, ROW_H);
+      // skip rail: red block where the row is enabled, empty where skipped
+      ctx.fillStyle = "#101010";
+      ctx.fillRect(0, y, SKIP_W, ROW_H);
+      if (!song.skipped[r]) {
+        ctx.fillStyle = "#e5362a";
+        ctx.fillRect(2, y + 2, SKIP_W - 4, ROW_H - 4);
+      }
+      // row number
       ctx.fillStyle = r % barRows === 0 ? "#f2f2f2" : "#8a8a8a";
-      ctx.fillText(String(r).padStart(4, " "), 8, y + 12);
+      ctx.fillText(String(r).padStart(4, " "), SKIP_W + 4, y + 12);
     }
 
     // --- column content: clip to the body and slide horizontally ---
@@ -120,8 +142,6 @@ export class TrackerView {
     ctx.rect(GUTTER_W, HEADER_H, width - GUTTER_W, height - HEADER_H);
     ctx.clip();
     ctx.translate(GUTTER_W - sx, 0);
-
-    this.shadeOutsideCrop(startRow, endRow, cols);
 
     const anySolo = song.tracks.some((t) => t.solo);
     song.tracks.forEach((track, i) => {
@@ -147,6 +167,14 @@ export class TrackerView {
     });
     ctx.restore();
 
+    // --- dim skipped rows across the body ---
+    ctx.fillStyle = "rgba(0,0,0,0.55)";
+    for (let r = startRow; r < endRow; r++) {
+      if (!song.skipped[r]) continue;
+      const y = HEADER_H + (r - this.scrollRow) * ROW_H;
+      ctx.fillRect(GUTTER_W, y, width - GUTTER_W, ROW_H);
+    }
+
     // --- playhead (fixed, spans gutter + body) ---
     if (this.playRow >= startRow - 1 && this.playRow <= endRow + 1) {
       const y = HEADER_H + (this.playRow - this.scrollRow) * ROW_H;
@@ -160,19 +188,6 @@ export class TrackerView {
     }
 
     this.drawHeader(song, cols);
-  }
-
-  // Called inside the translated column space (origin at first column).
-  private shadeOutsideCrop(startRow: number, endRow: number, cols: number) {
-    const { ctx, song } = this;
-    if (!song) return;
-    if (song.cropStart <= 0 && song.cropEnd >= song.lengthRows) return;
-    ctx.fillStyle = "rgba(0,0,0,0.5)";
-    for (let r = startRow; r < endRow; r++) {
-      if (r >= song.cropStart && r < song.cropEnd) continue;
-      const y = HEADER_H + (r - this.scrollRow) * ROW_H;
-      ctx.fillRect(0, y, cols * COL_W, ROW_H);
-    }
   }
 
   private drawHeader(song: Song, cols: number) {
@@ -201,15 +216,27 @@ export class TrackerView {
       ctx.fillText(this.fit(track.name, 13), x + 22, 15);
 
       // Mute / Solo toggles
-      this.chip(x + 6, 20, "M", track.muted, "#e5362a");
-      this.chip(x + 28, 20, "S", track.solo, "#f2f2f2");
+      this.chip(x + 6, 22, "M", track.muted, "#e5362a");
+      this.chip(x + 28, 22, "S", track.solo, "#f2f2f2");
 
       // voice label (click to cycle)
       ctx.fillStyle = "#353535";
-      ctx.fillRect(x + 6, 38, COL_W - 12, 14);
+      ctx.fillRect(x + 6, 42, COL_W - 12, 14);
       ctx.fillStyle = "#f2f2f2";
       ctx.font = "bold 11px 'Courier New', monospace";
-      ctx.fillText("♪ " + VOICE_LABELS[track.voice], x + 10, 49);
+      ctx.fillText("♪ " + VOICE_LABELS[track.voice], x + 10, 53);
+
+      // volume slider
+      const vx = x + 6;
+      const vw = COL_W - 12;
+      const vy = 60;
+      const vh = 8;
+      ctx.fillStyle = "#353535";
+      ctx.fillRect(vx, vy, vw, vh);
+      ctx.fillStyle = "#e5362a";
+      ctx.fillRect(vx, vy, vw * track.volume, vh);
+      ctx.fillStyle = "#f2f2f2";
+      ctx.fillRect(vx + vw * track.volume - 1, vy - 1, 2, vh + 2);
     }
     ctx.restore();
   }
