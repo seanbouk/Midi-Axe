@@ -165,7 +165,7 @@ function buildGrid() {
       const b = document.createElement("button");
       b.className = "cell";
       b.textContent = "▶";
-      b.onclick = () => play(id, m);
+      b.onpointerdown = () => play(id, m); // fire on press, not release
       td.appendChild(b);
       tr.appendChild(td);
     }
