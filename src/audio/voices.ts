@@ -310,6 +310,83 @@ export function fmVoice(ctx: BaseAudioContext, output: AudioNode, algo: FmAlgo, 
   return new FmPoolVoice(ctx, output, algo, level);
 }
 
+// --- wavetable voice (TurboGrafx / PC Engine HuC6280) -----------------------
+// Loops a tiny single-cycle buffer (the chip's 32-sample, 5-bit waveform RAM),
+// pitched via playbackRate — so it keeps the raw, slightly-aliased lo-fi
+// character a band-limited oscillator would smooth away. Optional LFO vibrato
+// (the PC Engine's channel-2-modulates-channel-1 trick) via a shared oscillator
+// feeding each voice's detune (cents), so the depth is pitch-independent.
+export interface LfoSpec {
+  rate: number; // Hz
+  cents: number; // vibrato depth
+}
+
+class WavetableVoice implements Voice {
+  private pool: { src: AudioBufferSourceNode; gain: GainNode; depth?: GainNode }[] = [];
+  private rr = 0;
+  private base: number; // playbackRate-1 frequency = sampleRate / tableLength
+  private lfo?: OscillatorNode;
+  constructor(ctx: BaseAudioContext, output: AudioNode, wave: Float32Array, private level: number, lfo?: LfoSpec) {
+    this.base = ctx.sampleRate / wave.length;
+    const buf = ctx.createBuffer(1, wave.length, ctx.sampleRate);
+    buf.getChannelData(0).set(wave);
+    if (lfo) {
+      this.lfo = ctx.createOscillator();
+      this.lfo.type = "sine";
+      this.lfo.frequency.value = lfo.rate;
+      this.lfo.start(ctx.currentTime);
+    }
+    for (let i = 0; i < 4; i++) {
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.loop = true;
+      const gain = ctx.createGain();
+      gain.gain.value = 0;
+      src.connect(gain).connect(output);
+      src.start(ctx.currentTime);
+      let depth: GainNode | undefined;
+      if (lfo && this.lfo) {
+        depth = ctx.createGain();
+        depth.gain.value = lfo.cents;
+        this.lfo.connect(depth);
+        depth.connect(src.detune);
+      }
+      this.pool.push({ src, gain, depth });
+    }
+  }
+  trigger(midi: number, durSec: number, time: number, velocity: number) {
+    const slot = this.pool[this.rr];
+    this.rr = (this.rr + 1) % this.pool.length;
+    slot.src.playbackRate.setValueAtTime(midiToFreq(midi) / this.base, time);
+    const g = slot.gain.gain;
+    const peak = Math.max(0.0001, velocity * this.level);
+    const atkEnd = time + 0.005;
+    const relStart = Math.max(atkEnd, time + durSec);
+    const relEnd = relStart + 0.05;
+    g.setValueAtTime(0, time);
+    g.linearRampToValueAtTime(peak, atkEnd);
+    g.setValueAtTime(peak, relStart);
+    g.linearRampToValueAtTime(0, relEnd);
+  }
+  dispose() {
+    for (const s of this.pool) {
+      try { s.src.stop(); } catch { /* stopped */ }
+      s.src.disconnect();
+      s.gain.disconnect();
+      s.depth?.disconnect();
+    }
+    try { this.lfo?.stop(); } catch { /* stopped */ }
+    this.lfo?.disconnect();
+    this.pool = [];
+  }
+}
+
+export function wavetableVoice(
+  ctx: BaseAudioContext, output: AudioNode, wave: Float32Array, level: number, lfo?: LfoSpec,
+): Voice {
+  return new WavetableVoice(ctx, output, wave, level, lfo);
+}
+
 export function oscVoice(ctx: BaseAudioContext, output: AudioNode, spec: OscSpec, level: number): Voice {
   return new OscPoolVoice(ctx, output, spec, level);
 }

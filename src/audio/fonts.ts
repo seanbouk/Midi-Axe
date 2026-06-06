@@ -1,7 +1,8 @@
 import type { Track } from "../model/song";
 import { applyTheme, type Theme } from "./theme";
-import { fmVoice, noiseVoice, oscVoice, sidVoice, type Voice } from "./voices";
+import { fmVoice, noiseVoice, oscVoice, sidVoice, wavetableVoice, type Voice } from "./voices";
 import { FM_BANK, FM_LABELS, FM_MAP } from "./fmbank";
+import { PCE_WAVES } from "./pcewaves";
 import { MIDI_FONT } from "./midifont";
 
 // A SoundFont is a synthesis engine: a set of selectable per-track patches, an
@@ -60,30 +61,35 @@ const NES: SoundFont = {
   },
 };
 
+// TurboGrafx / PC Engine: looped 32-sample 5-bit wavetables (id -> wave, level)
+// plus a vibrato lead (LFO) and channel-5 noise.
+const TG_PATCHES: { id: string; label: string; wave: string; level: number; lfo?: { rate: number; cents: number } }[] = [
+  { id: "tg_square", label: "Square", wave: "square", level: 0.26 },
+  { id: "tg_pulse", label: "Pulse 25%", wave: "pulse25", level: 0.26 },
+  { id: "tg_saw", label: "Saw", wave: "saw", level: 0.24 },
+  { id: "tg_tri", label: "Triangle", wave: "triangle", level: 0.32 },
+  { id: "tg_sine", label: "Sine", wave: "sine", level: 0.46 },
+  { id: "tg_organ", label: "Organ", wave: "organ", level: 0.42 },
+  { id: "tg_spike", label: "Spike", wave: "spike", level: 0.3 },
+  { id: "tg_buzz", label: "Buzz", wave: "buzz", level: 0.24 },
+  { id: "tg_lead", label: "Lead ~vib", wave: "spike", level: 0.3, lfo: { rate: 5.5, cents: 28 } },
+];
+const TG_MAP = Object.fromEntries(TG_PATCHES.map((p) => [p.id, p]));
+
 const TURBOGRAFX: SoundFont = {
   id: "turbografx",
   label: "TurboGrafx",
-  patches: [
-    { id: "tg_square", label: "Square" },
-    { id: "tg_saw", label: "Saw" },
-    { id: "tg_sine", label: "Sine" },
-    { id: "tg_tri", label: "Triangle" },
-    { id: "tg_noise", label: "Noise" },
-  ],
+  patches: [...TG_PATCHES.map((p) => ({ id: p.id, label: p.label })), { id: "tg_noise", label: "Noise" }],
   theme: {
     bg: "#15171b", panel: "#20242b", panel2: "#2c313a", ink: "#eef1f4", muted: "#7e8794",
     accent: "#ff8a2a", row: "#1c1f25", rowbeat: "#24282f", rowbar: "#313742", grid: "#3c4350",
     gutter: "#121419", skipRail: "#0d0f12",
   },
-  autoAssign: (t, i) => assign(t, i, "tg_noise", "tg_tri", ["tg_square", "tg_saw", "tg_sine"]),
+  autoAssign: (t, i) => assign(t, i, "tg_noise", "tg_sine", ["tg_square", "tg_organ", "tg_spike", "tg_saw", "tg_lead"]),
   createVoice(id, ctx, out) {
-    switch (id) {
-      case "tg_saw": return oscVoice(ctx, out, { kind: "native", type: "sawtooth" }, 0.2);
-      case "tg_sine": return oscVoice(ctx, out, { kind: "native", type: "sine" }, 0.5);
-      case "tg_tri": return oscVoice(ctx, out, { kind: "native", type: "triangle" }, 0.34);
-      case "tg_noise": return noiseVoice(ctx, out);
-      default: return oscVoice(ctx, out, { kind: "native", type: "square" }, 0.26);
-    }
+    if (id === "tg_noise") return noiseVoice(ctx, out);
+    const p = TG_MAP[id] ?? TG_PATCHES[0];
+    return wavetableVoice(ctx, out, PCE_WAVES[p.wave], p.level, p.lfo);
   },
 };
 
