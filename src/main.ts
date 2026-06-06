@@ -240,6 +240,7 @@ pauseBtn.addEventListener("click", () => {
 function stopPlayback() {
   stop();
   view.playRow = -1;
+  view.scrollRow = 0; // rewind the view to the top
   setTransport("stopped");
   drawAll();
 }
