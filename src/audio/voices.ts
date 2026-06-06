@@ -224,6 +224,7 @@ export interface FmAlgo {
   ops: FmOp[];
   edges: [number, number][]; // [modulatorIndex, carrierIndex]
   carriers: number[];
+  feedback?: { op: number; amount: number }; // operator self-modulation (grit/saw)
 }
 
 function adsr(
@@ -242,7 +243,7 @@ function adsr(
 }
 
 class FmPoolVoice implements Voice {
-  private pool: { osc: OscillatorNode[]; env: GainNode[] }[] = [];
+  private pool: { osc: OscillatorNode[]; env: GainNode[]; fb?: GainNode }[] = [];
   private rr = 0;
   private carrierSet: Set<number>;
   constructor(ctx: BaseAudioContext, output: AudioNode, private algo: FmAlgo, private level: number) {
@@ -262,7 +263,17 @@ class FmPoolVoice implements Voice {
       }
       for (const [m, c] of algo.edges) env[m].connect(osc[c].frequency);
       for (const c of algo.carriers) env[c].connect(output);
-      this.pool.push({ osc, env });
+      // operator feedback: raw oscillator (±1) -> gain -> its own frequency.
+      // (Web Audio adds a one-quantum delay, so this approximates DX feedback —
+      // still adds the bright/sawtooth harmonics; bounded so it can't blow up.)
+      let fb: GainNode | undefined;
+      if (algo.feedback) {
+        fb = ctx.createGain();
+        fb.gain.value = 0;
+        osc[algo.feedback.op].connect(fb);
+        fb.connect(osc[algo.feedback.op].frequency);
+      }
+      this.pool.push({ osc, env, fb });
     }
   }
   trigger(midi: number, durSec: number, time: number, velocity: number) {
@@ -280,11 +291,16 @@ class FmPoolVoice implements Voice {
         : op.level * f;
       adsr(slot.env[i].gain, time, peak, op.a, op.d, op.s, op.r, end);
     });
+    if (this.algo.feedback && slot.fb) {
+      const fop = this.algo.feedback.op;
+      slot.fb.gain.setValueAtTime(this.algo.feedback.amount * this.algo.ops[fop].ratio * base, time);
+    }
   }
   dispose() {
     for (const s of this.pool) {
       s.osc.forEach((o) => { try { o.stop(); } catch { /* stopped */ } o.disconnect(); });
       s.env.forEach((g) => g.disconnect());
+      s.fb?.disconnect();
     }
     this.pool = [];
   }
