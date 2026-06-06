@@ -1,6 +1,7 @@
 import type { Track } from "../model/song";
 import { applyTheme, type Theme } from "./theme";
 import { fmVoice, noiseVoice, oscVoice, sidVoice, type FmAlgo, type Voice } from "./voices";
+import { MIDI_FONT } from "./midifont";
 
 // A SoundFont is a synthesis engine: a set of selectable per-track patches, an
 // auto-assign heuristic (drums/pitch-range based), a createVoice factory, and a
@@ -19,6 +20,8 @@ export interface SoundFont {
   theme: Theme;
   autoAssign(track: Track, index: number): string;
   createVoice(patchId: string, ctx: BaseAudioContext, output: AudioNode): Voice;
+  // optional async asset preload (MIDI samples); awaited before play/export
+  ready?(): Promise<void>;
 }
 
 // Shared heuristic: drums -> the noise patch, low average pitch -> a bass patch,
@@ -184,9 +187,9 @@ const MEGADRIVE: SoundFont = {
   },
 };
 
-const FONTS: SoundFont[] = [NES, TURBOGRAFX, C64, X68000, MEGADRIVE];
+const FONTS: SoundFont[] = [MIDI_FONT, NES, TURBOGRAFX, C64, X68000, MEGADRIVE];
 
-let currentId = "nes";
+let currentId = "midi";
 try {
   const saved = localStorage.getItem("midiaxe.font");
   if (saved && FONTS.some((f) => f.id === saved)) currentId = saved;

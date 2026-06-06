@@ -1,6 +1,6 @@
 import { buildSchedule, type Song } from "../model/song";
 import { createMasterBus } from "./voices";
-import { createVoice } from "./fonts";
+import { createVoice, getCurrentFont } from "./fonts";
 
 // Render the song (skipped rows compacted out, per-track volumes applied) into a
 // WAV on a plain OfflineAudioContext. Always rendered as a seamless loop: we
@@ -25,17 +25,23 @@ export async function renderWav(song: Song, opts: ExportOptions = {}): Promise<B
 
   const ctx = new OfflineAudioContext(channels, totalFrames, sampleRate);
   const master = createMasterBus(ctx);
+  const anySolo = song.tracks.some((t) => t.solo);
+  const built: { voice: ReturnType<typeof createVoice>; notes: typeof schedule.tracks[number] }[] = [];
   schedule.tracks.forEach((notes, i) => {
     const track = song.tracks[i];
-    const anySolo = song.tracks.some((t) => t.solo);
     const audible = anySolo ? track.solo : !track.muted;
     if (!audible) return;
     const gate = ctx.createGain();
     gate.gain.value = track.volume;
     gate.connect(master.input);
-    const voice = createVoice(track.patch, ctx, gate);
-    for (const note of notes) voice.trigger(note.midi, note.durSec, note.time, note.velocity);
+    built.push({ voice: createVoice(track.patch, ctx, gate), notes });
   });
+
+  // Wait for sample loads (MIDI font) BEFORE scheduling notes — sample voices
+  // can only be triggered once their buffers are decoded into this context.
+  await getCurrentFont().ready?.();
+  for (const { voice, notes } of built)
+    for (const note of notes) voice.trigger(note.midi, note.durSec, note.time, note.velocity);
 
   // Progress + cancel via suspend/resume checkpoints.
   const steps = 20;

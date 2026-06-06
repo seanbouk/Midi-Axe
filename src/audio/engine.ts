@@ -1,7 +1,7 @@
 import * as Tone from "tone";
 import { buildSchedule, secondsPerRow, type Schedule, type Song } from "../model/song";
 import { createMasterBus, type MasterBus, type Voice } from "./voices";
-import { createVoice } from "./fonts";
+import { createVoice, getCurrentFont } from "./fonts";
 
 // Live playback engine. One raw-Web-Audio Voice per track behind a per-track
 // gain "gate" (whose level is the track volume, or 0 when muted/un-soloed), all
@@ -75,6 +75,11 @@ export async function play(song: Song, onRow: (row: number) => void): Promise<vo
   transport.loopEnd = Math.max(spr, schedule.totalSec);
   transport.position = 0;
   state = "playing";
+
+  // Wait for any sample loads (MIDI font). Setting state first means a Stop
+  // during loading flips state to "stopped" and we bail without starting.
+  await getCurrentFont().ready?.();
+  if (state !== "playing") return;
 
   transport.start();
   startTick();
