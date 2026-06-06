@@ -28,7 +28,7 @@ html, body {
 
 #app { display: flex; flex-direction: column; height: 100vh; }
 
-#topbar, #settings {
+#topbar {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -45,17 +45,16 @@ html, body {
   color: var(--accent);
 }
 
-#settings {
-  background: var(--panel2);
-  font-size: 13px;
-  color: var(--ink);
-  font-weight: 700;
-}
-#settings label { display: flex; align-items: center; gap: 6px; }
-
 .spacer { flex: 1; }
 .muted { color: var(--muted); font-size: 13px; }
-.sep { color: var(--grid); }
+
+#songinfo {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+}
 
 #mini-wrap {
   flex: 1;

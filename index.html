@@ -13,7 +13,7 @@
           Load .mid
           <input id="file" type="file" accept=".mid,.midi" hidden />
         </label>
-        <span id="songinfo" class="muted">drop a MIDI file or click “Load .mid”</span>
+        <span id="songinfo" class="muted">drop a .mid</span>
         <div id="mini-wrap" title="Song overview — click or drag to seek">
           <canvas id="minimap"></canvas>
         </div>
@@ -22,19 +22,6 @@
         <button id="stop" disabled>■ Stop</button>
         <button id="export" disabled>⬇ Export WAV</button>
       </header>
-
-      <section id="settings">
-        <label>Rows / beat
-          <select id="rpb">
-            <option value="2">2</option>
-            <option value="4" selected>4</option>
-            <option value="6">6</option>
-            <option value="8">8</option>
-          </select>
-        </label>
-        <span class="sep">|</span>
-        <span class="muted">drag the left rail to skip/keep rows · hold <b>S</b> to solo · playback loops · export is a seamless loop</span>
-      </section>
 
       <main id="tracker-wrap">
         <canvas id="tracker"></canvas>

@@ -18,12 +18,11 @@ const playBtn = $("play") as HTMLButtonElement;
 const pauseBtn = $("pause") as HTMLButtonElement;
 const stopBtn = $("stop") as HTMLButtonElement;
 const exportBtn = $("export") as HTMLButtonElement;
-const rpbSelect = $("rpb") as HTMLSelectElement;
 const wrap = $("tracker-wrap");
 
+const ROWS_PER_BEAT = 4;
+
 let song: Song | null = null;
-let lastBuffer: ArrayBuffer | null = null;
-let lastName = "song";
 
 // Redraw both the tracker and the minimap (minimap mirrors the visible window
 // and playhead, so they must stay in sync).
@@ -34,18 +33,17 @@ function drawAll() {
 
 // ---- loading ----
 function loadBuffer(buffer: ArrayBuffer, name: string) {
-  lastBuffer = buffer;
-  lastName = name;
-  const rpb = parseInt(rpbSelect.value, 10);
-  song = parseMidi(buffer, name, rpb);
+  song = parseMidi(buffer, name, ROWS_PER_BEAT);
   view.song = song;
   view.scrollRow = 0;
   view.scrollX = 0;
   view.playRow = -1;
   minimap.setSong(song);
   drawAll();
-  songInfo.textContent = `${song.name} — ${song.tracks.length} tracks, ${song.bpm.toFixed(0)} bpm, ${song.lengthRows} rows`;
+  songInfo.textContent = song.name;
+  songInfo.title = song.name;
   songInfo.classList.remove("muted");
+  document.title = `${song.name} — MIDI Axe`;
   exportBtn.disabled = false;
   setTransport("stopped");
 }
@@ -76,13 +74,6 @@ wrap.addEventListener("drop", async (e) => {
   wrap.classList.remove("dragover");
   const file = e.dataTransfer?.files?.[0];
   if (file) loadBuffer(await file.arrayBuffer(), file.name);
-});
-
-rpbSelect.addEventListener("change", () => {
-  if (lastBuffer) {
-    stopPlayback();
-    loadBuffer(lastBuffer, lastName);
-  }
 });
 
 // ---- scrolling ----
