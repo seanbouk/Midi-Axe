@@ -1,7 +1,8 @@
 import type { Track } from "../model/song";
 import { applyTheme, type Theme } from "./theme";
-import { ensureFmModule, fmVoice, noiseVoice, oscVoice, sidVoice, wavetableVoice, type Voice } from "./voices";
+import { ensureFmModule, ensureSidModule, fmVoice, noiseVoice, oscVoice, sidVoice, wavetableVoice, type Voice } from "./voices";
 import { FM_BANK, FM_LABELS, FM_MAP } from "./fmbank";
+import { SID_BANK, SID_MAP } from "./sidbank";
 import { PCE_WAVES } from "./pcewaves";
 import { MIDI_FONT } from "./midifont";
 
@@ -100,25 +101,18 @@ const TURBOGRAFX: SoundFont = {
 const C64: SoundFont = {
   id: "c64",
   label: "C64",
-  patches: [
-    { id: "sid_pulse", label: "Pulse" },
-    { id: "sid_saw", label: "Saw" },
-    { id: "sid_tri", label: "Triangle" },
-    { id: "sid_noise", label: "Noise" },
-  ],
+  patches: SID_BANK.map((p) => ({ id: p.id, label: p.label })),
   theme: {
     bg: "#c7b88f", panel: "#bcac7e", panel2: "#ac9c6c", ink: "#2a2742", muted: "#6d6446",
     accent: "#4a40c4", row: "#c1b184", rowbeat: "#b9a875", rowbar: "#ab9a66", grid: "#978a5c",
     gutter: "#b1a06f", skipRail: "#8a7d52",
   },
-  autoAssign: (t, i) => assign(t, i, "sid_noise", "sid_saw", ["sid_pulse", "sid_tri", "sid_saw"]),
+  autoAssign: (t, i) =>
+    assign(t, i, "sid_noise", "sid_pluckbass", ["sid_resolead", "sid_pwmstrings", "sid_organ", "sid_sawlead", "sid_bell"]),
+  prepare: (ctx) => ensureSidModule(ctx),
   createVoice(id, ctx, out) {
-    switch (id) {
-      case "sid_saw": return sidVoice(ctx, out, { kind: "native", type: "sawtooth" }, 0.22);
-      case "sid_tri": return sidVoice(ctx, out, { kind: "native", type: "triangle" }, 0.34);
-      case "sid_noise": return noiseVoice(ctx, out);
-      default: return sidVoice(ctx, out, { kind: "pulse", duty: 0.5 }, 0.28);
-    }
+    const p = SID_MAP[id] ?? SID_BANK[0];
+    return sidVoice(ctx, out, p.config);
   },
 };
 

@@ -127,12 +127,15 @@ function getVar(name: string) {
 const lastLevels: { id: string; label: string; peakDb: number; rmsDb: number }[] = [];
 
 async function measurePatch(patchId: string): Promise<{ peak: number; rms: number }> {
-  const oc = new OfflineAudioContext(1, Math.ceil(44100 * 0.8), 44100);
-  await getCurrentFont().prepare?.(oc); // FM worklet module for this offline context
+  const dur = 0.8;
+  const oc = new OfflineAudioContext(1, Math.ceil(44100 * dur), 44100);
+  await getCurrentFont().prepare?.(oc); // FM/SID worklet module for this offline context
   const master = createMasterBus(oc);
   const v = createVoice(patchId, oc, master.input);
   await getCurrentFont().ready?.(); // MIDI samples must decode before triggering
-  v.trigger(60, 0.5, 0, 0.9);
+  v.trigger(60, 0.5, 0.05, 0.9); // small offset so a t=0 note isn't missed
+  // suspend/resume yields let worklet (FM/SID) voices receive their note message
+  for (let i = 1; i < 8; i++) oc.suspend((dur * i) / 8).then(() => oc.resume());
   const buf = await oc.startRendering();
   const d = buf.getChannelData(0);
   let peak = 0, sumsq = 0;

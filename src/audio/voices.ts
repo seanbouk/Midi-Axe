@@ -2,6 +2,7 @@
 // track (started once, retuned per note) so offline render stays fast and live
 // playback light. Sound fonts (fonts.ts) compose these into selectable patches.
 import fmWorkletUrl from "./worklets/fm-processor.js?url";
+import sidWorkletUrl from "./worklets/sid-processor.js?url";
 
 export interface Voice {
   trigger(midi: number, durSec: number, time: number, velocity: number): void;
@@ -115,53 +116,46 @@ class OscPoolVoice implements Voice {
   }
 }
 
-// --- SID-style voice: oscillator -> resonant lowpass -> ADSR (C64) -----------
-class SidPoolVoice implements Voice {
-  private pool: { osc: OscillatorNode; filter: BiquadFilterNode; gain: GainNode }[] = [];
-  private rr = 0;
-  constructor(ctx: BaseAudioContext, output: AudioNode, spec: OscSpec, private level: number) {
-    const w = resolveWave(ctx, spec);
-    for (let i = 0; i < 3; i++) {
-      const osc = ctx.createOscillator();
-      applyOsc(osc, w);
-      const filter = ctx.createBiquadFilter();
-      filter.type = "lowpass";
-      filter.frequency.value = 2600;
-      filter.Q.value = 7; // resonance gives the SID "round" character
-      const gain = ctx.createGain();
-      gain.gain.value = 0;
-      osc.connect(filter).connect(gain).connect(output);
-      osc.start(ctx.currentTime);
-      this.pool.push({ osc, filter, gain });
-    }
+// --- SID voice (C64) — runs in the sid-processor AudioWorklet ----------------
+// A patch is waveform + amplitude ADSR + a resonant multimode filter with its
+// own ADSR (cutoff sweep) + optional PWM. Sample-accurate, so the envelopes and
+// resonant filter behave like the real SID.
+export interface Env {
+  a: number; d: number; s: number; r: number;
+}
+export interface SidConfig {
+  wave: "saw" | "triangle" | "pulse" | "noise";
+  pulseWidth?: number; // for "pulse"
+  pwmRate?: number;
+  pwmDepth?: number;
+  amp: Env;
+  filter: { type: "lp" | "bp" | "hp"; cutoff: number; resonance: number };
+  fenv?: Env & { amount: number }; // filter-cutoff envelope (Hz sweep)
+  level: number;
+}
+
+class SidWorkletVoice implements Voice {
+  private node: AudioWorkletNode;
+  constructor(ctx: BaseAudioContext, output: AudioNode, config: SidConfig) {
+    this.node = new AudioWorkletNode(ctx as AudioContext, "sid-processor", {
+      numberOfInputs: 0,
+      numberOfOutputs: 1,
+      outputChannelCount: [1],
+      processorOptions: { config },
+    });
+    this.node.connect(output);
   }
   trigger(midi: number, durSec: number, time: number, velocity: number) {
-    const slot = this.pool[this.rr];
-    this.rr = (this.rr + 1) % this.pool.length;
-    slot.osc.frequency.setValueAtTime(midiToFreq(midi), time);
-    const g = slot.gain.gain;
-    const peak = Math.max(0.0001, velocity * this.level);
-    const a = 0.005, d = 0.09, s = 0.6, r = 0.09;
-    const sus = peak * s;
-    const atkEnd = time + a;
-    const decEnd = atkEnd + d;
-    const relStart = Math.max(decEnd, time + durSec);
-    const relEnd = relStart + r;
-    g.setValueAtTime(0, time);
-    g.linearRampToValueAtTime(peak, atkEnd);
-    g.linearRampToValueAtTime(sus, decEnd);
-    g.setValueAtTime(sus, relStart);
-    g.linearRampToValueAtTime(0, relEnd);
+    this.node.port.postMessage({ type: "note", midi, dur: durSec, time, vel: velocity });
   }
   dispose() {
-    for (const s of this.pool) {
-      try { s.osc.stop(); } catch { /* already stopped */ }
-      s.osc.disconnect();
-      s.filter.disconnect();
-      s.gain.disconnect();
-    }
-    this.pool = [];
+    try { this.node.port.postMessage({ type: "stopAll" }); } catch { /* ignore */ }
+    this.node.disconnect();
   }
+}
+
+export function sidVoice(ctx: BaseAudioContext, output: AudioNode, config: SidConfig): Voice {
+  return new SidWorkletVoice(ctx, output, config);
 }
 
 // --- noise voice (drums / PSG-style noise) ----------------------------------
@@ -232,15 +226,16 @@ export interface FmAlgo {
 // feedback — the node graph couldn't do a zero-delay loop. The module must be
 // loaded into the context before any fmVoice is created; ensureFmModule (called
 // by the FM fonts' prepare()) handles that, once per context.
-const fmModuleReady = new WeakMap<BaseAudioContext, Promise<void>>();
-export function ensureFmModule(ctx: BaseAudioContext): Promise<void> {
-  let p = fmModuleReady.get(ctx);
-  if (!p) {
-    p = ctx.audioWorklet.addModule(fmWorkletUrl);
-    fmModuleReady.set(ctx, p);
-  }
+const moduleCache = new WeakMap<BaseAudioContext, Map<string, Promise<void>>>();
+function ensureModule(ctx: BaseAudioContext, url: string): Promise<void> {
+  let m = moduleCache.get(ctx);
+  if (!m) { m = new Map(); moduleCache.set(ctx, m); }
+  let p = m.get(url);
+  if (!p) { p = ctx.audioWorklet.addModule(url); m.set(url, p); }
   return p;
 }
+export const ensureFmModule = (ctx: BaseAudioContext) => ensureModule(ctx, fmWorkletUrl);
+export const ensureSidModule = (ctx: BaseAudioContext) => ensureModule(ctx, sidWorkletUrl);
 
 class FmWorkletVoice implements Voice {
   private node: AudioWorkletNode;
@@ -351,9 +346,6 @@ export function wavetableVoice(
 
 export function oscVoice(ctx: BaseAudioContext, output: AudioNode, spec: OscSpec, level: number): Voice {
   return new OscPoolVoice(ctx, output, spec, level);
-}
-export function sidVoice(ctx: BaseAudioContext, output: AudioNode, spec: OscSpec, level: number): Voice {
-  return new SidPoolVoice(ctx, output, spec, level);
 }
 export function noiseVoice(ctx: BaseAudioContext, output: AudioNode): Voice {
   return new NoiseVoice(ctx, output);
