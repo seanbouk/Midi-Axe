@@ -61,9 +61,10 @@ function status(msg: string) {
 // download in the background — auditions then fire instantly on press.
 async function preloadAll() {
   if (!ctx) return;
+  status("loading…");
+  await getCurrentFont().prepare?.(ctx); // FM AudioWorklet module
   displayedPatches().forEach(getVoice);
-  status("loading samples…");
-  await getCurrentFont().ready?.();
+  await getCurrentFont().ready?.(); // MIDI samples
   status("");
 }
 
@@ -75,6 +76,7 @@ function clearVoices() {
 async function play(patchId: string, midi: number) {
   ensureAudio();
   await ctx!.resume();
+  await getCurrentFont().prepare?.(ctx!); // ensure FM worklet module is loaded
   const v = getVoice(patchId);
   // wait only for THIS instrument's samples (oscillator voices have no .ready)
   await (v as { ready?: Promise<void> }).ready;
@@ -126,6 +128,7 @@ const lastLevels: { id: string; label: string; peakDb: number; rmsDb: number }[]
 
 async function measurePatch(patchId: string): Promise<{ peak: number; rms: number }> {
   const oc = new OfflineAudioContext(1, Math.ceil(44100 * 0.8), 44100);
+  await getCurrentFont().prepare?.(oc); // FM worklet module for this offline context
   const master = createMasterBus(oc);
   const v = createVoice(patchId, oc, master.input);
   await getCurrentFont().ready?.(); // MIDI samples must decode before triggering
