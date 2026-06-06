@@ -1,6 +1,6 @@
 import type { Track } from "../model/song";
 import { applyTheme, type Theme } from "./theme";
-import { noiseVoice, oscVoice, sidVoice, type Voice } from "./voices";
+import { fmVoice, noiseVoice, oscVoice, sidVoice, type FmAlgo, type Voice } from "./voices";
 
 // A SoundFont is a synthesis engine: a set of selectable per-track patches, an
 // auto-assign heuristic (drums/pitch-range based), a createVoice factory, and a
@@ -108,7 +108,83 @@ const C64: SoundFont = {
   },
 };
 
-const FONTS: SoundFont[] = [NES, TURBOGRAFX, C64];
+// Shared FM patches (used by X68000 and Mega Drive). For modulator ops `level`
+// is the modulation index; for carrier ops it is output amplitude.
+const FM: Record<string, FmAlgo> = {
+  bass: { ops: [
+    { ratio: 1, level: 2.4, a: 0.001, d: 0.12, s: 0.4, r: 0.12 },
+    { ratio: 1, level: 0.9, a: 0.001, d: 0.10, s: 0.8, r: 0.12 },
+  ], edges: [[0, 1]], carriers: [1] },
+  lead: { ops: [
+    { ratio: 2, level: 3.0, a: 0.004, d: 0.2, s: 0.6, r: 0.16 },
+    { ratio: 1, level: 0.9, a: 0.004, d: 0.2, s: 0.8, r: 0.16 },
+  ], edges: [[0, 1]], carriers: [1] },
+  bell: { ops: [
+    { ratio: 3.5, level: 4.0, a: 0.001, d: 0.6, s: 0.1, r: 0.5 },
+    { ratio: 1, level: 0.9, a: 0.001, d: 0.5, s: 0.2, r: 0.5 },
+  ], edges: [[0, 1]], carriers: [1] },
+  brass: { ops: [
+    { ratio: 1, level: 1.6, a: 0.03, d: 0.2, s: 0.7, r: 0.2 },
+    { ratio: 1, level: 1.4, a: 0.03, d: 0.2, s: 0.7, r: 0.2 },
+    { ratio: 1, level: 0.9, a: 0.03, d: 0.2, s: 0.8, r: 0.2 },
+  ], edges: [[0, 1], [1, 2]], carriers: [2] },
+};
+
+const X68000: SoundFont = {
+  id: "x68000",
+  label: "X68000",
+  patches: [
+    { id: "fm_lead", label: "FM Lead" },
+    { id: "fm_bass", label: "FM Bass" },
+    { id: "fm_brass", label: "FM Brass" },
+    { id: "fm_bell", label: "FM Bell" },
+    { id: "fm_noise", label: "Noise" },
+  ],
+  theme: {
+    bg: "#151a24", panel: "#1f2633", panel2: "#2b3444", ink: "#e8edf5", muted: "#7f8aa0",
+    accent: "#2bd1c4", row: "#1b212c", rowbeat: "#232b38", rowbar: "#313c4e", grid: "#3a4658",
+    gutter: "#11151c", skipRail: "#0c0f15",
+  },
+  autoAssign: (t, i) => assign(t, i, "fm_noise", "fm_bass", ["fm_lead", "fm_brass", "fm_bell"]),
+  createVoice(id, ctx, out) {
+    switch (id) {
+      case "fm_bass": return fmVoice(ctx, out, FM.bass, 0.34);
+      case "fm_brass": return fmVoice(ctx, out, FM.brass, 0.3);
+      case "fm_bell": return fmVoice(ctx, out, FM.bell, 0.3);
+      case "fm_noise": return noiseVoice(ctx, out);
+      default: return fmVoice(ctx, out, FM.lead, 0.3);
+    }
+  },
+};
+
+const MEGADRIVE: SoundFont = {
+  id: "megadrive",
+  label: "Mega Drive",
+  patches: [
+    { id: "md_lead", label: "FM Lead" },
+    { id: "md_bass", label: "FM Bass" },
+    { id: "md_brass", label: "FM Brass" },
+    { id: "psg_square", label: "PSG Square" },
+    { id: "psg_noise", label: "PSG Noise" },
+  ],
+  theme: {
+    bg: "#15161b", panel: "#202129", panel2: "#2c2e3a", ink: "#eef0f6", muted: "#828799",
+    accent: "#3f7ff0", row: "#1b1c23", rowbeat: "#23252e", rowbar: "#31333f", grid: "#3b3e4c",
+    gutter: "#111218", skipRail: "#0c0d11",
+  },
+  autoAssign: (t, i) => assign(t, i, "psg_noise", "md_bass", ["md_lead", "psg_square", "md_brass"]),
+  createVoice(id, ctx, out) {
+    switch (id) {
+      case "md_bass": return fmVoice(ctx, out, FM.bass, 0.34);
+      case "md_brass": return fmVoice(ctx, out, FM.brass, 0.3);
+      case "psg_square": return oscVoice(ctx, out, { kind: "native", type: "square" }, 0.24);
+      case "psg_noise": return noiseVoice(ctx, out);
+      default: return fmVoice(ctx, out, FM.lead, 0.3);
+    }
+  },
+};
+
+const FONTS: SoundFont[] = [NES, TURBOGRAFX, C64, X68000, MEGADRIVE];
 
 let currentId = "nes";
 try {

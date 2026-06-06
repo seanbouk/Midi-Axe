@@ -207,6 +207,93 @@ class NoiseVoice implements Voice {
   }
 }
 
+// --- 4-operator FM voice (X68000 YM2151 / Mega Drive YM2612) ----------------
+// Each operator is a sine oscillator with its own ADSR-gated gain. Modulator
+// gains feed carrier frequency params (phase/FM); carrier gains sum to output.
+// An algorithm is the set of modulation edges + which ops are carriers. All
+// nodes persist in a small pool and are retuned/re-enveloped per note.
+export interface FmOp {
+  ratio: number; // frequency multiple of the played note
+  level: number; // carriers: output amplitude; modulators: modulation index
+  a: number;
+  d: number;
+  s: number;
+  r: number;
+}
+export interface FmAlgo {
+  ops: FmOp[];
+  edges: [number, number][]; // [modulatorIndex, carrierIndex]
+  carriers: number[];
+}
+
+function adsr(
+  p: AudioParam, time: number, peak: number,
+  a: number, d: number, s: number, r: number, end: number,
+) {
+  const atkEnd = time + a;
+  const decEnd = atkEnd + d;
+  const relStart = Math.max(decEnd, end);
+  const relEnd = relStart + r;
+  p.setValueAtTime(0, time);
+  p.linearRampToValueAtTime(peak, atkEnd);
+  p.linearRampToValueAtTime(peak * s, decEnd);
+  p.setValueAtTime(peak * s, relStart);
+  p.linearRampToValueAtTime(0, relEnd);
+}
+
+class FmPoolVoice implements Voice {
+  private pool: { osc: OscillatorNode[]; env: GainNode[] }[] = [];
+  private rr = 0;
+  private carrierSet: Set<number>;
+  constructor(ctx: BaseAudioContext, output: AudioNode, private algo: FmAlgo, private level: number) {
+    this.carrierSet = new Set(algo.carriers);
+    for (let p = 0; p < 3; p++) {
+      const osc: OscillatorNode[] = [];
+      const env: GainNode[] = [];
+      for (let i = 0; i < algo.ops.length; i++) {
+        const o = ctx.createOscillator();
+        o.type = "sine";
+        const g = ctx.createGain();
+        g.gain.value = 0;
+        o.connect(g);
+        o.start(ctx.currentTime);
+        osc.push(o);
+        env.push(g);
+      }
+      for (const [m, c] of algo.edges) env[m].connect(osc[c].frequency);
+      for (const c of algo.carriers) env[c].connect(output);
+      this.pool.push({ osc, env });
+    }
+  }
+  trigger(midi: number, durSec: number, time: number, velocity: number) {
+    const slot = this.pool[this.rr];
+    this.rr = (this.rr + 1) % this.pool.length;
+    const base = midiToFreq(midi);
+    const end = time + durSec;
+    const mix = this.level / Math.max(1, this.algo.carriers.length);
+    this.algo.ops.forEach((op, i) => {
+      const f = op.ratio * base;
+      slot.osc[i].frequency.setValueAtTime(f, time);
+      // carriers: amplitude; modulators: frequency deviation = index * modFreq
+      const peak = this.carrierSet.has(i)
+        ? Math.max(0.0001, velocity * op.level * mix)
+        : op.level * f;
+      adsr(slot.env[i].gain, time, peak, op.a, op.d, op.s, op.r, end);
+    });
+  }
+  dispose() {
+    for (const s of this.pool) {
+      s.osc.forEach((o) => { try { o.stop(); } catch { /* stopped */ } o.disconnect(); });
+      s.env.forEach((g) => g.disconnect());
+    }
+    this.pool = [];
+  }
+}
+
+export function fmVoice(ctx: BaseAudioContext, output: AudioNode, algo: FmAlgo, level: number): Voice {
+  return new FmPoolVoice(ctx, output, algo, level);
+}
+
 export function oscVoice(ctx: BaseAudioContext, output: AudioNode, spec: OscSpec, level: number): Voice {
   return new OscPoolVoice(ctx, output, spec, level);
 }
