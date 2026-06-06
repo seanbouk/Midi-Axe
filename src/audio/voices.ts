@@ -326,6 +326,7 @@ class WavetableVoice implements Voice {
   private rr = 0;
   private base: number; // playbackRate-1 frequency = sampleRate / tableLength
   private lfo?: OscillatorNode;
+  private lfoFrac = 0; // vibrato depth as a fraction of playbackRate
   constructor(ctx: BaseAudioContext, output: AudioNode, wave: Float32Array, private level: number, lfo?: LfoSpec) {
     this.base = ctx.sampleRate / wave.length;
     const buf = ctx.createBuffer(1, wave.length, ctx.sampleRate);
@@ -335,6 +336,7 @@ class WavetableVoice implements Voice {
       this.lfo.type = "sine";
       this.lfo.frequency.value = lfo.rate;
       this.lfo.start(ctx.currentTime);
+      this.lfoFrac = Math.pow(2, lfo.cents / 1200) - 1; // cents -> playbackRate fraction
     }
     for (let i = 0; i < 4; i++) {
       const src = ctx.createBufferSource();
@@ -346,10 +348,12 @@ class WavetableVoice implements Voice {
       src.start(ctx.currentTime);
       let depth: GainNode | undefined;
       if (lfo && this.lfo) {
+        // vibrato via playbackRate (detune is absent on the buffer source in
+        // Tone's wrapped live context); depth is set per note to track pitch.
         depth = ctx.createGain();
-        depth.gain.value = lfo.cents;
+        depth.gain.value = 0;
         this.lfo.connect(depth);
-        depth.connect(src.detune);
+        depth.connect(src.playbackRate);
       }
       this.pool.push({ src, gain, depth });
     }
@@ -357,7 +361,9 @@ class WavetableVoice implements Voice {
   trigger(midi: number, durSec: number, time: number, velocity: number) {
     const slot = this.pool[this.rr];
     this.rr = (this.rr + 1) % this.pool.length;
-    slot.src.playbackRate.setValueAtTime(midiToFreq(midi) / this.base, time);
+    const rate = midiToFreq(midi) / this.base;
+    slot.src.playbackRate.setValueAtTime(rate, time);
+    if (slot.depth) slot.depth.gain.setValueAtTime(rate * this.lfoFrac, time);
     const g = slot.gain.gain;
     const peak = Math.max(0.0001, velocity * this.level);
     const atkEnd = time + 0.005;
