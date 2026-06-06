@@ -1,10 +1,12 @@
 import "./style.css";
 import { parseMidi } from "./midi/parse";
-import { VOICE_ORDER, type Song } from "./model/song";
+import { type Song } from "./model/song";
 import { TrackerView, GUTTER_W, COL_W } from "./tracker/render";
 import { Minimap } from "./tracker/minimap";
 import { isPaused, isPlaying, pause, play, refreshVoice, reschedule, resume, seek, stop, updateMix } from "./audio/engine";
 import { renderWav } from "./audio/exportWav";
+import { assignPatches, getCurrentFont, listFonts, nextPatch, setCurrentFont } from "./audio/fonts";
+import { applyTheme } from "./audio/theme";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -18,9 +20,20 @@ const playBtn = $("play") as HTMLButtonElement;
 const pauseBtn = $("pause") as HTMLButtonElement;
 const stopBtn = $("stop") as HTMLButtonElement;
 const exportBtn = $("export") as HTMLButtonElement;
+const fontSelect = $("font") as HTMLSelectElement;
 const wrap = $("tracker-wrap");
 
 const ROWS_PER_BEAT = 4;
+
+// populate the sound-font picker and apply the (session-remembered) theme
+for (const f of listFonts()) {
+  const opt = document.createElement("option");
+  opt.value = f.id;
+  opt.textContent = f.label;
+  fontSelect.appendChild(opt);
+}
+fontSelect.value = getCurrentFont().id;
+applyTheme(getCurrentFont().theme);
 
 let song: Song | null = null;
 
@@ -34,6 +47,7 @@ function drawAll() {
 // ---- loading ----
 function loadBuffer(buffer: ArrayBuffer, name: string) {
   song = parseMidi(buffer, name, ROWS_PER_BEAT);
+  assignPatches(song); // current sound font picks each track's patch
   view.song = song;
   view.scrollRow = 0;
   view.scrollX = 0;
@@ -132,8 +146,7 @@ canvas.addEventListener("mousedown", (e) => {
       soloTrack = hit.track;
       updateMix(song);
     } else if (hit.type === "voice") {
-      const i = VOICE_ORDER.indexOf(t.voice);
-      t.voice = VOICE_ORDER[(i + 1) % VOICE_ORDER.length];
+      t.patch = nextPatch(t.patch); // cycle within the current font's patches
       refreshVoice(hit.track); // apply the new timbre live
     } else if (hit.type === "volume") {
       t.volume = hit.frac;
@@ -267,6 +280,18 @@ exportBtn.addEventListener("click", async () => {
     exportAbort = null;
     exportBtn.textContent = "⬇ Export WAV";
   }
+});
+
+// ---- sound font switch ----
+fontSelect.addEventListener("change", () => {
+  setCurrentFont(fontSelect.value); // swaps the theme too
+  if (song) {
+    assignPatches(song); // re-run the new font's auto-assign for every track
+    minimap.setSong(song); // rebuild minimap cache with the new background
+    // rebuild every live voice so the new timbres play without stopping
+    song.tracks.forEach((_, i) => refreshVoice(i));
+  }
+  drawAll();
 });
 
 // ---- resize ----

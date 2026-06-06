@@ -1,5 +1,5 @@
 import { Midi } from "@tonejs/midi";
-import type { Song, Track, VoiceId } from "../model/song";
+import type { Song, Track } from "../model/song";
 
 const TRACK_COLORS = [
   "#7df0a0",
@@ -11,17 +11,6 @@ const TRACK_COLORS = [
   "#f0a87d",
   "#a8f07d",
 ];
-
-// Pick a sensible chiptune voice for a freshly imported MIDI track:
-//  - drums (channel 10) -> noise
-//  - low average pitch  -> triangle (NES bass voice)
-//  - everything else     -> alternating pulse duties so parts stay distinct
-function autoVoice(isDrum: boolean, avgMidi: number, index: number): VoiceId {
-  if (isDrum) return "noise";
-  if (avgMidi > 0 && avgMidi < 52) return "triangle";
-  const pulses: VoiceId[] = ["pulse50", "pulse25", "pulse12"];
-  return pulses[index % pulses.length];
-}
 
 // Parse a MIDI ArrayBuffer into our quantized Song model. The MIDI bytes live
 // only here and in the browser's memory — never serialized elsewhere.
@@ -61,9 +50,10 @@ export function parseMidi(
       name,
       gmProgram: mt.instrument.number,
       isDrum,
+      avgMidi,
       muted: false,
       solo: false,
-      voice: autoVoice(isDrum, avgMidi, tracks.length),
+      patch: "", // assigned by the current sound font after parse
       volume: 0.85,
       color: TRACK_COLORS[tracks.length % TRACK_COLORS.length],
       notes,

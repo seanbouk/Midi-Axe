@@ -2,29 +2,6 @@
 // the audio engine, and the exporter all read from. MIDI is parsed once into
 // this shape (quantized to tracker rows); everything downstream works on it.
 
-export type VoiceId =
-  | "pulse12"
-  | "pulse25"
-  | "pulse50"
-  | "triangle"
-  | "noise";
-
-export const VOICE_LABELS: Record<VoiceId, string> = {
-  pulse12: "Pulse 12.5%",
-  pulse25: "Pulse 25%",
-  pulse50: "Pulse 50%",
-  triangle: "Triangle",
-  noise: "Noise",
-};
-
-export const VOICE_ORDER: VoiceId[] = [
-  "pulse12",
-  "pulse25",
-  "pulse50",
-  "triangle",
-  "noise",
-];
-
 export interface Note {
   row: number; // quantized start row
   lenRows: number; // quantized length in rows (>= 1)
@@ -36,9 +13,10 @@ export interface Track {
   name: string;
   gmProgram: number; // original General MIDI program number
   isDrum: boolean; // came from MIDI channel 10
+  avgMidi: number; // average note pitch (drives font auto-assign)
   muted: boolean;
   solo: boolean; // momentary: true only while the Solo button is held
-  voice: VoiceId;
+  patch: string; // current sound-font patch id (font-scoped)
   volume: number; // 0..1 per-track level
   color: string;
   notes: Note[];

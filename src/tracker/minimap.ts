@@ -1,4 +1,5 @@
 import type { Song } from "../model/song";
+import { theme } from "../audio/theme";
 
 // Horizontal whole-song overview in the top bar. Time runs left-to-right; each
 // track gets a thin lane of note activity. Shows the currently-visible row
@@ -45,7 +46,7 @@ export class Minimap {
     this.cache.height = h;
     const c = this.cache.getContext("2d")!;
     c.clearRect(0, 0, w, h);
-    c.fillStyle = "#141414";
+    c.fillStyle = theme.bg;
     c.fillRect(0, 0, w, h);
     if (!song || song.lengthRows === 0) return;
 
@@ -87,16 +88,18 @@ export class Minimap {
     // visible-row window box
     const vx0 = (scrollRow / len) * w;
     const vx1 = ((scrollRow + visibleRows) / len) * w;
-    ctx.fillStyle = "rgba(242,242,242,0.14)";
+    ctx.globalAlpha = 0.16;
+    ctx.fillStyle = theme.ink;
     ctx.fillRect(vx0, 0, Math.max(2, vx1 - vx0), h);
-    ctx.strokeStyle = "#f2f2f2";
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = theme.ink;
     ctx.lineWidth = 1;
     ctx.strokeRect(vx0 + 0.5, 0.5, Math.max(2, vx1 - vx0), h - 1);
 
     // playhead
     if (playRow >= 0) {
       const px = (playRow / len) * w;
-      ctx.strokeStyle = "#e5362a";
+      ctx.strokeStyle = theme.accent;
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(px, 0);

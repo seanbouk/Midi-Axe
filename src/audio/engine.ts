@@ -1,6 +1,7 @@
 import * as Tone from "tone";
 import { buildSchedule, secondsPerRow, type Schedule, type Song } from "../model/song";
-import { createMasterBus, createVoice, type MasterBus, type Voice } from "./voices";
+import { createMasterBus, type MasterBus, type Voice } from "./voices";
+import { createVoice } from "./fonts";
 
 // Live playback engine. One raw-Web-Audio Voice per track behind a per-track
 // gain "gate" (whose level is the track volume, or 0 when muted/un-soloed), all
@@ -62,7 +63,7 @@ export async function play(song: Song, onRow: (row: number) => void): Promise<vo
     const gate = rawCtx.createGain();
     gate.gain.value = 0;
     gate.connect(masterBus!.input);
-    const voice = createVoice(track.voice, rawCtx, gate);
+    const voice = createVoice(track.patch, rawCtx, gate);
     return { voice, gate };
   });
 
@@ -101,7 +102,7 @@ export function refreshVoice(trackIndex: number) {
   const node = nodes[trackIndex];
   if (!node) return;
   node.voice.dispose();
-  node.voice = createVoice(ctx.song.tracks[trackIndex].voice, audioCtx, node.gate);
+  node.voice = createVoice(ctx.song.tracks[trackIndex].patch, audioCtx, node.gate);
 }
 
 // Live rebuild of the timeline after a skip-rail edit: recompute the compacted

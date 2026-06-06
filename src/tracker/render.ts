@@ -1,4 +1,6 @@
-import { noteName, VOICE_LABELS, type Song } from "../model/song";
+import { noteName, type Song } from "../model/song";
+import { theme } from "../audio/theme";
+import { patchLabel } from "../audio/fonts";
 
 // Canvas-based FamiTracker-style grid. Left gutter has a per-row enable/skip
 // rail plus row numbers; the header row per track carries name + Mute/Solo +
@@ -97,10 +99,10 @@ export class TrackerView {
   draw() {
     const { ctx, song, width, height } = this;
     ctx.clearRect(0, 0, width, height);
-    ctx.fillStyle = "#1c1c1c";
+    ctx.fillStyle = theme.bg;
     ctx.fillRect(0, 0, width, height);
     if (!song) {
-      ctx.fillStyle = "#9e9e9e";
+      ctx.fillStyle = theme.muted;
       ctx.font = "bold 14px 'Courier New', monospace";
       ctx.fillText("Load a MIDI file to begin.", 20, HEADER_H + 30);
       return;
@@ -118,21 +120,21 @@ export class TrackerView {
     for (let r = startRow; r < endRow; r++) {
       const y = HEADER_H + (r - this.scrollRow) * ROW_H;
       ctx.fillStyle =
-        r % barRows === 0 ? "#3c3c3c" : r % rpb === 0 ? "#2e2e2e" : "#242424";
+        r % barRows === 0 ? theme.rowbar : r % rpb === 0 ? theme.rowbeat : theme.row;
       ctx.fillRect(GUTTER_W, y, width - GUTTER_W, ROW_H);
 
       // gutter background
-      ctx.fillStyle = r % barRows === 0 ? "#282828" : "#181818";
+      ctx.fillStyle = r % barRows === 0 ? theme.panel : theme.gutter;
       ctx.fillRect(SKIP_W, y, GUTTER_W - SKIP_W, ROW_H);
-      // skip rail: red block where the row is enabled, empty where skipped
-      ctx.fillStyle = "#101010";
+      // skip rail: accent block where the row is enabled, empty where skipped
+      ctx.fillStyle = theme.skipRail;
       ctx.fillRect(0, y, SKIP_W, ROW_H);
       if (!song.skipped[r]) {
-        ctx.fillStyle = "#e5362a";
+        ctx.fillStyle = theme.accent;
         ctx.fillRect(2, y + 2, SKIP_W - 4, ROW_H - 4);
       }
       // row number
-      ctx.fillStyle = r % barRows === 0 ? "#f2f2f2" : "#8a8a8a";
+      ctx.fillStyle = r % barRows === 0 ? theme.ink : theme.muted;
       ctx.fillText(String(r).padStart(4, " "), SKIP_W + 4, y + 12);
     }
 
@@ -154,12 +156,12 @@ export class TrackerView {
         const h = Math.max(ROW_H - 1, note.lenRows * ROW_H - 1);
         ctx.fillStyle = track.color;
         ctx.fillRect(x + 4, y + 1, COL_W - 8, h);
-        ctx.fillStyle = "#111111";
+        ctx.fillStyle = "#111111"; // black reads on every bright instrument colour
         ctx.font = "bold 12px 'Courier New', monospace";
         ctx.fillText(noteName(note.midi), x + 10, y + 12);
       }
       ctx.globalAlpha = 1;
-      ctx.strokeStyle = "#3a3a3a";
+      ctx.strokeStyle = theme.grid;
       ctx.beginPath();
       ctx.moveTo(x, HEADER_H);
       ctx.lineTo(x, height);
@@ -178,7 +180,7 @@ export class TrackerView {
     // --- playhead (fixed, spans gutter + body) ---
     if (this.playRow >= startRow - 1 && this.playRow <= endRow + 1) {
       const y = HEADER_H + (this.playRow - this.scrollRow) * ROW_H;
-      ctx.strokeStyle = "#e5362a";
+      ctx.strokeStyle = theme.accent;
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(0, y);
@@ -192,7 +194,7 @@ export class TrackerView {
 
   private drawHeader(song: Song, cols: number) {
     const { ctx } = this;
-    ctx.fillStyle = "#282828";
+    ctx.fillStyle = theme.panel;
     ctx.fillRect(0, 0, this.width, HEADER_H);
     ctx.strokeStyle = "#000";
     ctx.beginPath();
@@ -211,31 +213,31 @@ export class TrackerView {
       // color chip + name
       ctx.fillStyle = track.color;
       ctx.fillRect(x + 6, 6, 10, 10);
-      ctx.fillStyle = "#f2f2f2";
+      ctx.fillStyle = theme.ink;
       ctx.font = "bold 12px 'Courier New', monospace";
       ctx.fillText(this.fit(track.name, 13), x + 22, 15);
 
-      // Mute / Solo toggles
-      this.chip(x + 6, 22, "M", track.muted, "#e5362a");
-      this.chip(x + 28, 22, "S", track.solo, "#f2f2f2");
+      // Mute (accent) / Solo (ink) toggles
+      this.chip(x + 6, 22, "M", track.muted, theme.accent);
+      this.chip(x + 28, 22, "S", track.solo, theme.ink);
 
-      // voice label (click to cycle)
-      ctx.fillStyle = "#353535";
+      // patch label (click to cycle)
+      ctx.fillStyle = theme.panel2;
       ctx.fillRect(x + 6, 42, COL_W - 12, 14);
-      ctx.fillStyle = "#f2f2f2";
+      ctx.fillStyle = theme.ink;
       ctx.font = "bold 11px 'Courier New', monospace";
-      ctx.fillText("♪ " + VOICE_LABELS[track.voice], x + 10, 53);
+      ctx.fillText("♪ " + patchLabel(track.patch), x + 10, 53);
 
       // volume slider
       const vx = x + 6;
       const vw = COL_W - 12;
       const vy = 60;
       const vh = 8;
-      ctx.fillStyle = "#353535";
+      ctx.fillStyle = theme.panel2;
       ctx.fillRect(vx, vy, vw, vh);
-      ctx.fillStyle = "#e5362a";
+      ctx.fillStyle = theme.accent;
       ctx.fillRect(vx, vy, vw * track.volume, vh);
-      ctx.fillStyle = "#f2f2f2";
+      ctx.fillStyle = theme.ink;
       ctx.fillRect(vx + vw * track.volume - 1, vy - 1, 2, vh + 2);
     }
     ctx.restore();
@@ -243,9 +245,9 @@ export class TrackerView {
 
   private chip(x: number, y: number, label: string, on: boolean, color: string) {
     const { ctx } = this;
-    ctx.fillStyle = on ? color : "#353535";
+    ctx.fillStyle = on ? color : theme.panel2;
     ctx.fillRect(x, y, 18, 16);
-    ctx.fillStyle = on ? "#111111" : "#9e9e9e";
+    ctx.fillStyle = on ? theme.bg : theme.muted;
     ctx.font = "bold 11px 'Courier New', monospace";
     ctx.fillText(label, x + 5, y + 12);
   }

@@ -1,5 +1,6 @@
 import { buildSchedule, type Song } from "../model/song";
-import { createMasterBus, createVoice } from "./voices";
+import { createMasterBus } from "./voices";
+import { createVoice } from "./fonts";
 
 // Render the song (skipped rows compacted out, per-track volumes applied) into a
 // WAV on a plain OfflineAudioContext. Always rendered as a seamless loop: we
@@ -32,7 +33,7 @@ export async function renderWav(song: Song, opts: ExportOptions = {}): Promise<B
     const gate = ctx.createGain();
     gate.gain.value = track.volume;
     gate.connect(master.input);
-    const voice = createVoice(track.voice, ctx, gate);
+    const voice = createVoice(track.patch, ctx, gate);
     for (const note of notes) voice.trigger(note.midi, note.durSec, note.time, note.velocity);
   });
 
