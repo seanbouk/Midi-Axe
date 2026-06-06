@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MIDI Axe — Sound Debug</title>
+    <style>
+      :root { --bg:#1c1c1c; --panel:#282828; --panel2:#353535; --ink:#f2f2f2; --muted:#8a8a8a; --accent:#e5362a; --grid:#454545; }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: var(--bg); color: var(--ink);
+        font-family: "Courier New", ui-monospace, monospace; font-weight: 700;
+        padding: 16px 20px;
+      }
+      h1 { color: var(--accent); font-size: 20px; margin: 0 16px 0 0; letter-spacing: 0.5px; }
+      h2 { font-size: 13px; color: var(--muted); margin: 0 0 8px; text-transform: uppercase; letter-spacing: 1px; }
+      header { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 16px; }
+      .muted { color: var(--muted); font-size: 12px; font-weight: 400; }
+      select, button, textarea {
+        background: var(--panel2); color: var(--ink); border: 1px solid var(--grid);
+        border-radius: 5px; padding: 6px 10px; font-family: inherit; font-weight: 700; font-size: 13px; cursor: pointer;
+      }
+      textarea { cursor: text; width: 100%; resize: vertical; }
+      button:hover { border-color: var(--accent); }
+      label { display: inline-flex; align-items: center; gap: 6px; }
+      .cols { display: flex; gap: 22px; align-items: flex-start; flex-wrap: wrap; }
+      section { background: var(--panel); border: 1px solid var(--grid); border-radius: 8px; padding: 14px; margin-bottom: 16px; }
+      table { border-collapse: collapse; }
+      td, th { padding: 3px; text-align: center; font-size: 12px; }
+      th.patch, td.patch { text-align: left; padding-right: 12px; white-space: nowrap; color: var(--ink); }
+      .cell {
+        width: 46px; height: 30px; padding: 0; background: var(--panel2);
+        border: 1px solid var(--grid); border-radius: 4px;
+      }
+      .cell:active { background: var(--accent); }
+      canvas { display: block; background: #0c0c0c; border: 1px solid var(--grid); border-radius: 4px; margin-bottom: 12px; }
+      #levels .lv { display: grid; grid-template-columns: 130px 1fr 96px; gap: 8px; align-items: center; margin: 3px 0; font-size: 12px; }
+      .bar { height: 12px; background: var(--accent); border-radius: 2px; }
+      .barbg { background: var(--panel2); border-radius: 2px; }
+      #copied { color: var(--accent); font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>MIDI&nbsp;Axe · Sound Debug</h1>
+      <label>Font <select id="font"></select></label>
+      <label>Note length
+        <select id="hold">
+          <option value="0.4">Pluck</option>
+          <option value="1.4">Sustain</option>
+        </select>
+      </label>
+      <button id="measure">Measure levels</button>
+      <span class="muted">click cells to audition · jot notes · Copy report → paste to Claude</span>
+    </header>
+
+    <div class="cols">
+      <section>
+        <h2>Audition — patch × note</h2>
+        <div id="grid"></div>
+      </section>
+      <section>
+        <h2>Oscilloscope</h2>
+        <canvas id="scope" width="460" height="150"></canvas>
+        <h2>Spectrum</h2>
+        <canvas id="spec" width="460" height="150"></canvas>
+      </section>
+      <section>
+        <h2>Levels — raw render of C4 (peak · rms)</h2>
+        <div id="levels"><span class="muted">click “Measure levels”.</span></div>
+      </section>
+    </div>
+
+    <section>
+      <h2>Notes for Claude</h2>
+      <textarea id="notes" rows="5" placeholder="What sounds off? e.g.:
+- C64 Saw at C4 too quiet and dull
+- X68000 FM Bell rings too long
+- Mega Drive PSG Square harsh in the high notes"></textarea>
+      <div style="margin-top:10px">
+        <button id="copy">Copy report to clipboard</button>
+        <span id="copied"></span>
+      </div>
+    </section>
+
+    <script type="module" src="/src/debug.ts"></script>
+  </body>
+</html>
