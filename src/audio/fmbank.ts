@@ -22,6 +22,7 @@ const ALG = {
   oneToAll: { e: [[0, 1], [0, 2], [0, 3]], c: [1, 2, 3] }, // 5: 1→(2,3,4)
   oneToTwo: { e: [[0, 1]], c: [1, 2, 3] }, // 6: 1→2, +3,4
   additive: { e: [] as [number, number][], c: [0, 1, 2, 3] }, // 7: all carriers
+  twoOp: { e: [[0, 1]], c: [1] }, // simple 2-op: 1→2 (single carrier, stable)
 } as const;
 
 type AlgKey = keyof typeof ALG;
@@ -61,8 +62,10 @@ export const FM_BANK: FmPatch[] = [
   // --- brass / leads ---
   { id: "fm_brass", label: "Brass", level: 0.3,
     algo: algo("oneAnd23", [op(1, 1.4, 0.04, 0.2, 0.8, 0.2), op(1, 1.6, 0.05, 0.2, 0.8, 0.2), op(1, 1.0, 0.05, 0.2, 0.8, 0.2), op(1, 0.9, 0.04, 0.2, 0.9, 0.2)]) },
-  { id: "fm_synbrass", label: "Syn Brass", level: 0.3,
-    algo: algo("serial", [op(1, 2.0, 0.03, 0.2, 0.7, 0.18), op(1, 1.2, 0.03, 0.2, 0.8, 0.18), op(1, 0.9, 0.03, 0.2, 0.8, 0.18), op(1, 0.9, 0.03, 0.2, 0.9, 0.2)], { op: 0, amount: 0.6 }) },
+  // clean 2-op brass: modulator swells in for the brassy edge, single carrier
+  // so it stays rock-steady at every pitch (no feedback, no detune beating)
+  { id: "fm_synbrass", label: "Syn Brass", level: 0.34,
+    algo: algo("twoOp", [op(1, 2.6, 0.03, 0.16, 0.55, 0.18), op(1, 1.0, 0.02, 0.15, 0.85, 0.18)]) },
   { id: "fm_lead_saw", label: "Saw Lead", level: 0.3,
     algo: algo("serial", [op(1, 1.0, 0.005, 0.15, 0.8, 0.12), op(1, 1.0, 0.005, 0.15, 0.85, 0.12), op(1, 0.9, 0.005, 0.15, 0.9, 0.12), op(1, 0.9, 0.005, 0.15, 0.95, 0.14)], { op: 0, amount: 1.8 }) },
   { id: "fm_lead_sq", label: "Sqr Lead", level: 0.3,
