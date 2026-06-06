@@ -66,14 +66,7 @@ export async function play(song: Song, onRow: (row: number) => void): Promise<vo
     return { voice, gate };
   });
 
-  schedule.tracks.forEach((notes, i) => {
-    const { voice } = nodes[i];
-    for (const note of notes) {
-      transport.schedule((time) => {
-        voice.trigger(note.midi, note.durSec, time, note.velocity);
-      }, note.time);
-    }
-  });
+  scheduleAll();
   applyMix(song);
 
   transport.loop = true; // always loop the compacted timeline
@@ -84,6 +77,45 @@ export async function play(song: Song, onRow: (row: number) => void): Promise<vo
 
   transport.start();
   startTick();
+}
+
+// Arm the transport with the current schedule. Callbacks read nodes[i].voice
+// dynamically so a live voice swap (refreshVoice) affects subsequent notes.
+function scheduleAll() {
+  if (!ctx) return;
+  const transport = Tone.getTransport();
+  ctx.schedule.tracks.forEach((notes, i) => {
+    for (const note of notes) {
+      transport.schedule((time) => {
+        nodes[i]?.voice.trigger(note.midi, note.durSec, time, note.velocity);
+      }, note.time);
+    }
+  });
+}
+
+// Live swap a track's voice (timbre) without stopping playback. The persistent
+// oscillator pool is rebuilt on the same gate; in-flight notes from the old
+// voice cut off, subsequent notes use the new timbre.
+export function refreshVoice(trackIndex: number) {
+  if (state === "stopped" || !ctx || !audioCtx) return;
+  const node = nodes[trackIndex];
+  if (!node) return;
+  node.voice.dispose();
+  node.voice = createVoice(ctx.song.tracks[trackIndex].voice, audioCtx, node.gate);
+}
+
+// Live rebuild of the timeline after a skip-rail edit: recompute the compacted
+// schedule, re-arm the transport, and re-place the playhead on the same content.
+export function reschedule(song: Song) {
+  if (state === "stopped" || !ctx) return;
+  const transport = Tone.getTransport();
+  const currentRow = compactedToRow(ctx);
+  ctx.song = song;
+  ctx.schedule = buildSchedule(song);
+  transport.cancel();
+  scheduleAll();
+  transport.loopEnd = Math.max(ctx.spr, ctx.schedule.totalSec);
+  seek(currentRow);
 }
 
 // Map the transport's compacted-timeline position back to an original row for

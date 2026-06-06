@@ -3,7 +3,7 @@ import { parseMidi } from "./midi/parse";
 import { VOICE_ORDER, type Song } from "./model/song";
 import { TrackerView, GUTTER_W, COL_W } from "./tracker/render";
 import { Minimap } from "./tracker/minimap";
-import { isPaused, isPlaying, pause, play, resume, seek, stop, updateMix } from "./audio/engine";
+import { isPaused, isPlaying, pause, play, refreshVoice, reschedule, resume, seek, stop, updateMix } from "./audio/engine";
 import { renderWav } from "./audio/exportWav";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -143,7 +143,7 @@ canvas.addEventListener("mousedown", (e) => {
     } else if (hit.type === "voice") {
       const i = VOICE_ORDER.indexOf(t.voice);
       t.voice = VOICE_ORDER[(i + 1) % VOICE_ORDER.length];
-      // voice timbre is bound when playback starts; restart to apply
+      refreshVoice(hit.track); // apply the new timbre live
     } else if (hit.type === "volume") {
       t.volume = hit.frac;
       drag = "volume";
@@ -186,7 +186,10 @@ window.addEventListener("mousemove", (e) => {
 });
 
 window.addEventListener("mouseup", () => {
+  const wasSkip = drag === "skip";
   drag = "none";
+  // apply skip-rail edits to the running playback once the drag ends
+  if (wasSkip && song) reschedule(song);
   if (soloTrack >= 0 && song) {
     song.tracks[soloTrack].solo = false;
     soloTrack = -1;
