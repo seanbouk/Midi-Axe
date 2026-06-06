@@ -62,18 +62,18 @@ class SampleVoice implements Voice {
   private inst: ReturnType<typeof Soundfont>;
   private failed = false;
   private fallback: Voice | null = null;
+  readonly ready: Promise<void>; // resolves once this instrument's samples load (or fail)
   constructor(ctx: BaseAudioContext, output: AudioNode, instrument: string) {
     this.inst = Soundfont(ctx as AudioContext, {
       instrument,
       destination: output as AudioNode,
       kit: "FluidR3_GM",
     });
-    pending.push(
-      this.inst.ready.catch(() => {
-        this.failed = true;
-        this.fallback = oscVoice(ctx, output, { kind: "native", type: "triangle" }, 0.3);
-      }),
-    );
+    this.ready = this.inst.ready.then(() => {}).catch(() => {
+      this.failed = true;
+      this.fallback = oscVoice(ctx, output, { kind: "native", type: "triangle" }, 0.3);
+    });
+    pending.push(this.ready);
   }
   trigger(midi: number, durSec: number, time: number, velocity: number) {
     if (this.failed) {

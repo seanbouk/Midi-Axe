@@ -46,6 +46,26 @@ function ensureAudio() {
   mon.connect(analyser);
   analyser.connect(ctx.destination);
   requestAnimationFrame(drawScope);
+  void preloadAll();
+}
+
+function getVoice(patchId: string): Voice {
+  if (!voices.has(patchId)) voices.set(patchId, createVoice(patchId, ctx!, mon));
+  return voices.get(patchId)!;
+}
+
+function status(msg: string) {
+  $("status").textContent = msg;
+}
+
+// Build every displayed patch's voice up front so sample-based (MIDI) patches
+// download in the background — auditions then fire instantly on press.
+async function preloadAll() {
+  if (!ctx) return;
+  displayedPatches().forEach(getVoice);
+  status("loading samples…");
+  await getCurrentFont().ready?.();
+  status("");
 }
 
 function clearVoices() {
@@ -56,10 +76,11 @@ function clearVoices() {
 async function play(patchId: string, midi: number) {
   ensureAudio();
   await ctx!.resume();
-  if (!voices.has(patchId)) voices.set(patchId, createVoice(patchId, ctx!, mon));
-  await getCurrentFont().ready?.(); // load samples for MIDI patches
+  const v = getVoice(patchId);
+  // wait only for THIS instrument's samples (oscillator voices have no .ready)
+  await (v as { ready?: Promise<void> }).ready;
   const hold = parseFloat(holdSel.value);
-  voices.get(patchId)!.trigger(midi, hold, ctx!.currentTime + 0.06, 0.9);
+  v.trigger(midi, hold, ctx!.currentTime + 0.02, 0.9);
 }
 
 // --- visualisation -------------------------------------------------------
@@ -210,6 +231,7 @@ fontSel.addEventListener("change", () => {
   buildGrid();
   levelsEl.innerHTML = `<span class="muted">click “Measure levels”.</span>`;
   lastLevels.length = 0;
+  void preloadAll(); // warm up the new font's samples (no-op if audio not started)
 });
 
 $("measure").addEventListener("click", () => void measureLevels());
